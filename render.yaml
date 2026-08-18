@@ -1,0 +1,67 @@
+# Blueprint de Render para SmartCash. Al conectar este repo en el dashboard, Render lee este
+# archivo y crea/actualiza toda la infraestructura declarada acá (base de datos + web service)
+# de una sola vez.
+#
+# Nota sobre Postgres: NO se usa `property: internalConnectionString` para armar
+# SPRING_DATASOURCE_URL directo. Render expone Postgres como una connection URI estilo libpq
+# (postgresql://user:pass@host:port/db), pero el driver JDBC de PostgreSQL no parsea
+# credenciales embebidas en la URL -- solo entiende user/password como parametros separados.
+# Se usan las propiedades atomicas (host/port/database/user/password) y la URL JDBC real se
+# arma en application-prod.properties (jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}),
+# que si soporta concatenar placeholders. Verificado en vivo contra un contenedor real: con
+# esta composicion la app arranca y Flyway migra sin problemas.
+
+databases:
+  - name: smartcash-db
+    plan: starter # el plan "free" de Postgres en Render expira a los 90 dias -- no usar para datos que deban persistir
+    region: oregon
+
+services:
+  - type: web
+    name: smartcash-backend
+    env: docker
+    region: oregon
+    plan: free # sujeto a cold start tras 15 min de inactividad; ver /api/v1/system/ping para el keep-alive
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+
+      # --- Postgres: credenciales + host/puerto/nombre sueltos, nunca la connection string completa ---
+      - key: DB_HOST
+        fromDatabase:
+          name: smartcash-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: smartcash-db
+          property: port
+      - key: DB_NAME
+        fromDatabase:
+          name: smartcash-db
+          property: database
+      - key: SPRING_DATASOURCE_USERNAME
+        fromDatabase:
+          name: smartcash-db
+          property: user
+      - key: SPRING_DATASOURCE_PASSWORD
+        fromDatabase:
+          name: smartcash-db
+          property: password
+
+      # --- Redis: a diferencia de JDBC, Lettuce sí parsea credenciales embebidas en la URI,
+      # así que acá alcanza con una sola variable. sync:false porque Render no tiene un
+      # recurso Redis propio en este blueprint (usar Upstash u otro proveedor externo: pegar
+      # la URL completa, ej. rediss://default:<password>@<host>:<port>, en el dashboard).
+      - key: SPRING_DATA_REDIS_URL
+        sync: false
+
+      # --- Secretos de aplicación: nunca en texto plano en el YAML, se piden en el dashboard ---
+      - key: IAM_TOKEN_SECRET
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+
+      - key: FCM_ENABLED
+        value: "false"
