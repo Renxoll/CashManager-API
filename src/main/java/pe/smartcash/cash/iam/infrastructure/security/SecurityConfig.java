@@ -1,5 +1,6 @@
 package pe.smartcash.cash.iam.infrastructure.security;
 
+import java.util.List;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -10,6 +11,9 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 /**
  * API stateless protegida por Bearer token: sign-up/sign-in son públicos (hay que poder
@@ -24,9 +28,11 @@ class SecurityConfig {
   SecurityFilterChain securityFilterChain(
       HttpSecurity http,
       BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter,
-      BearerAuthenticationEntryPoint bearerAuthenticationEntryPoint)
+      BearerAuthenticationEntryPoint bearerAuthenticationEntryPoint,
+      CorsConfigurationSource corsConfigurationSource)
       throws Exception {
-    http.csrf(AbstractHttpConfigurer::disable)
+    http.cors(cors -> cors.configurationSource(corsConfigurationSource))
+        .csrf(AbstractHttpConfigurer::disable)
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(
             authorize ->
@@ -50,5 +56,28 @@ class SecurityConfig {
   @Bean
   PasswordEncoder passwordEncoder() {
     return new BCryptPasswordEncoder();
+  }
+
+  /**
+   * Sin origen "*" a propósito: con credentials implícitas en el header Authorization, el
+   * spec de CORS ni siquiera permite combinar "*" con un preflight que exponga cabeceras —
+   * el navegador lo rechaza. Se lista cada origen explícito (dev de React/Vite + el dominio
+   * real de producción) en vez de depender de un wildcard.
+   */
+  @Bean
+  CorsConfigurationSource corsConfigurationSource() {
+    CorsConfiguration configuration = new CorsConfiguration();
+    configuration.setAllowedOrigins(
+        List.of("http://localhost:3000", "http://localhost:5173", "https://app.smartcash.pe"));
+    configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+    configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+    // Sin esto el navegador descarta la cabecera Location de las respuestas 201: por
+    // default solo expone el puñado de cabeceras "seguras" del spec de CORS, y Location no
+    // es una de ellas.
+    configuration.setExposedHeaders(List.of("Location"));
+
+    UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    source.registerCorsConfiguration("/**", configuration);
+    return source;
   }
 }
