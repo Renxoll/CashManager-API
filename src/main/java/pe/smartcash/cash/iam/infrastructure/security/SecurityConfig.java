@@ -34,6 +34,7 @@ class SecurityConfig {
                     .requestMatchers(
                         "/api/v1/iam/sign-up",
                         "/api/v1/iam/sign-in",
+                        "/api/v1/system/ping",
                         "/actuator/health",
                         "/swagger-ui/**",
                         "/swagger-ui.html",
