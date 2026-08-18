@@ -1,5 +1,6 @@
 package pe.smartcash.cash.profile.interfaces.rest;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -16,12 +17,14 @@ import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 class UserProfileExceptionHandler {
 
   @ExceptionHandler(UserProfileNotFoundException.class)
-  ResponseEntity<ApiError> handleNotFound(UserProfileNotFoundException ex) {
-    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage()));
+  ResponseEntity<ApiError> handleNotFound(UserProfileNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(UserProfileAlreadyRegisteredException.class)
-  ResponseEntity<ApiError> handleAlreadyRegistered(UserProfileAlreadyRegisteredException ex) {
-    return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(Instant.now(), 409, "Conflict", ex.getMessage()));
+  ResponseEntity<ApiError> handleAlreadyRegistered(UserProfileAlreadyRegisteredException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(new ApiError(Instant.now(), 409, "Conflict", ex.getMessage(), request.getRequestURI()));
   }
 }
