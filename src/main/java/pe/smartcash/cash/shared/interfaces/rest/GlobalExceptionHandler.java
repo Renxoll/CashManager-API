@@ -1,5 +1,6 @@
 package pe.smartcash.cash.shared.interfaces.rest;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
@@ -23,24 +24,25 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
-  public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex) {
+  public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
     String detail =
         ex.getBindingResult().getFieldErrors().stream()
             .map(f -> f.getField() + ": " + f.getDefaultMessage())
             .reduce((a, b) -> a + "; " + b)
             .orElse("Payload inválido");
-    return ResponseEntity.badRequest().body(new ApiError(Instant.now(), 400, "Bad Request", detail));
+    return ResponseEntity.badRequest().body(new ApiError(Instant.now(), 400, "Bad Request", detail, request.getRequestURI()));
   }
 
   @ExceptionHandler(IllegalArgumentException.class)
-  public ResponseEntity<ApiError> handleBadRequest(IllegalArgumentException ex) {
-    return ResponseEntity.badRequest().body(new ApiError(Instant.now(), 400, "Bad Request", ex.getMessage()));
+  public ResponseEntity<ApiError> handleBadRequest(IllegalArgumentException ex, HttpServletRequest request) {
+    return ResponseEntity.badRequest()
+        .body(new ApiError(Instant.now(), 400, "Bad Request", ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(Exception.class)
-  public ResponseEntity<ApiError> handleUnexpected(Exception ex) {
+  public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
     log.error("Error no controlado procesando el request", ex);
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .body(new ApiError(Instant.now(), 500, "Internal Server Error", "Ocurrió un error inesperado"));
+        .body(new ApiError(Instant.now(), 500, "Internal Server Error", "Ocurrió un error inesperado", request.getRequestURI()));
   }
 }

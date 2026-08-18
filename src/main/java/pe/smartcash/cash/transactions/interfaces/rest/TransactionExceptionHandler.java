@@ -1,5 +1,6 @@
 package pe.smartcash.cash.transactions.interfaces.rest;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -23,8 +24,9 @@ import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 class TransactionExceptionHandler {
 
   @ExceptionHandler(UserNotFoundException.class)
-  ResponseEntity<ApiError> handleUserNotFound(UserNotFoundException ex) {
-    return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage()));
+  ResponseEntity<ApiError> handleUserNotFound(UserNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
   }
 
   /**
@@ -34,8 +36,8 @@ class TransactionExceptionHandler {
    * algo que el emisor del webhook deba reintentar ciegamente.
    */
   @ExceptionHandler(TransactionExtractionFailedException.class)
-  ResponseEntity<ApiError> handleExtractionFailed(TransactionExtractionFailedException ex) {
+  ResponseEntity<ApiError> handleExtractionFailed(TransactionExtractionFailedException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-        .body(new ApiError(Instant.now(), 422, "Unprocessable Content", ex.getMessage()));
+        .body(new ApiError(Instant.now(), 422, "Unprocessable Content", ex.getMessage(), request.getRequestURI()));
   }
 }

@@ -5,7 +5,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionStatus;
 
-interface SubscriptionJpaRepository extends JpaRepository<SubscriptionJpaEntity, UUID> {
+interface SubscriptionSpringDataRepository extends JpaRepository<SubscriptionJpaEntity, UUID> {
 
   Optional<SubscriptionJpaEntity> findByUserIdAndStatus(UUID userId, SubscriptionStatus status);
 }

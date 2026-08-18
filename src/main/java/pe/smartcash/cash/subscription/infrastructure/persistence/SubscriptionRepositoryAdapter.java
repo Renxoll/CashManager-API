@@ -11,9 +11,9 @@ import pe.smartcash.cash.subscription.domain.model.valueobjects.UserId;
 @Repository
 class SubscriptionRepositoryAdapter implements SubscriptionRepository {
 
-  private final SubscriptionJpaRepository jpaRepository;
+  private final SubscriptionSpringDataRepository jpaRepository;
 
-  SubscriptionRepositoryAdapter(SubscriptionJpaRepository jpaRepository) {
+  SubscriptionRepositoryAdapter(SubscriptionSpringDataRepository jpaRepository) {
     this.jpaRepository = jpaRepository;
   }
 
