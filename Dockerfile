@@ -26,4 +26,7 @@ ENV JAVA_OPTS=""
 HEALTHCHECK --interval=30s --timeout=3s --start-period=45s --retries=3 \
   CMD wget -qO- http://localhost:8080/actuator/health | grep -q '"status":"UP"' || exit 1
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+# ZGC generacional: baja latencia de pausas con el heap chico de un plan free/burstable de
+# ACA. En JDK 21 (a diferencia de JDK 23+) generational mode NO es el default de ZGC, así
+# que ambas flags son obligatorias juntas para activarlo -- no alcanza con -XX:+UseZGC solo.
+ENTRYPOINT ["sh", "-c", "java -XX:+UseZGC -XX:+ZGenerational $JAVA_OPTS -jar app.jar"]
