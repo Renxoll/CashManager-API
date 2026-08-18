@@ -1,6 +1,7 @@
 package pe.smartcash.cash.iam.application.internal.commandservices;
 
 import java.time.Clock;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.iam.domain.exception.EmailAlreadyRegisteredException;
@@ -9,6 +10,7 @@ import pe.smartcash.cash.iam.domain.model.aggregates.Credentials;
 import pe.smartcash.cash.iam.domain.model.aggregates.CredentialsRepository;
 import pe.smartcash.cash.iam.domain.model.commands.SignInCommand;
 import pe.smartcash.cash.iam.domain.model.commands.SignUpCommand;
+import pe.smartcash.cash.iam.domain.model.events.AccountRegisteredEvent;
 import pe.smartcash.cash.iam.domain.model.valueobjects.Email;
 import pe.smartcash.cash.iam.domain.model.valueobjects.HashedPassword;
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
@@ -23,13 +25,19 @@ class IamCommandServiceImpl implements IamCommandService {
   private final CredentialsRepository credentialsRepository;
   private final PasswordHasher passwordHasher;
   private final TokenService tokenService;
+  private final ApplicationEventPublisher eventPublisher;
   private final Clock clock;
 
   IamCommandServiceImpl(
-      CredentialsRepository credentialsRepository, PasswordHasher passwordHasher, TokenService tokenService, Clock clock) {
+      CredentialsRepository credentialsRepository,
+      PasswordHasher passwordHasher,
+      TokenService tokenService,
+      ApplicationEventPublisher eventPublisher,
+      Clock clock) {
     this.credentialsRepository = credentialsRepository;
     this.passwordHasher = passwordHasher;
     this.tokenService = tokenService;
+    this.eventPublisher = eventPublisher;
     this.clock = clock;
   }
 
@@ -43,6 +51,10 @@ class IamCommandServiceImpl implements IamCommandService {
     HashedPassword hashedPassword = passwordHasher.hash(command.rawPassword());
     Credentials credentials = Credentials.register(UserId.newId(), email, hashedPassword, clock.instant());
     credentialsRepository.save(credentials);
+    // @EventListener (no @TransactionalEventListener) corre síncrono, dentro de esta misma
+    // transacción @Transactional: si Profile falla al crear el perfil, todo el sign-up
+    // (incluidas las credenciales) hace rollback — onboarding atómico entre bounded contexts.
+    eventPublisher.publishEvent(new AccountRegisteredEvent(credentials.id().value(), email.value(), command.displayName()));
     return credentials.id();
   }
 

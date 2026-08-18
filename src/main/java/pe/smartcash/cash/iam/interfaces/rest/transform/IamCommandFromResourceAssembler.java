@@ -10,7 +10,7 @@ public final class IamCommandFromResourceAssembler {
   private IamCommandFromResourceAssembler() {}
 
   public static SignUpCommand toSignUpCommand(SignUpResource resource) {
-    return new SignUpCommand(resource.email(), resource.password());
+    return new SignUpCommand(resource.email(), resource.password(), resource.displayName());
   }
 
   public static SignInCommand toSignInCommand(SignInResource resource) {
