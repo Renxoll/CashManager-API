@@ -7,6 +7,8 @@ import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.infrastructure.persistence.jpa.repositories.CategoryJpaRepository;
+import pe.smartcash.cash.transactions.infrastructure.persistence.jpa.repositories.TransactionJpaRepository;
 
 @Repository
 class TransactionRepositoryAdapter implements TransactionRepository {
