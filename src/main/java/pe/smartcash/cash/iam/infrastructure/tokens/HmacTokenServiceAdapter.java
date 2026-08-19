@@ -15,44 +15,74 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.iam.domain.services.AccessToken;
+import pe.smartcash.cash.iam.domain.services.RefreshToken;
+import pe.smartcash.cash.iam.domain.services.TokenPair;
 import pe.smartcash.cash.iam.domain.services.TokenService;
 
 /**
- * Token propio firmado con HMAC-SHA256, sin librerías externas de JWT:
- * {@code base64url(userId|expiresAtEpochMillis).base64url(firma)}. La firma se codifica en
- * base64url directamente desde los bytes crudos que devuelve {@link Mac#doFinal()} — nunca
- * se le aplica una segunda pasada de Base64 (ese bug hace que {@code validate} jamás vuelva
- * a reproducir la misma firma, porque el string ya no es el que se firmó). Vive detrás del
- * puerto {@link TokenService}, así que migrar a otra librería más adelante es un adaptador
- * nuevo, no un cambio de dominio.
+ * HMAC-SHA256 nativo, sin librerías externas de JWT:
+ * {@code base64url(type|userId|expiresAtEpochMillis).base64url(firma)}. El {@code type}
+ * ("access"/"refresh") es la diferencia clave frente al esquema anterior de un solo token:
+ * sin él, un access token de vida corta que un cliente recibe normalmente serviría también
+ * como refresh token estructuralmente idéntico, permitiendo mintear pares nuevos indefinidamente
+ * a partir de un access token robado sin necesitar jamás el refresh token real. {@code validate}
+ * y {@code validateRefreshToken} exigen cada uno su propio tipo — un token del tipo equivocado
+ * se trata igual que uno inválido.
  */
 @Component
 class HmacTokenServiceAdapter implements TokenService {
 
   private static final String ALGORITHM = "HmacSHA256";
+  private static final String TYPE_ACCESS = "access";
+  private static final String TYPE_REFRESH = "refresh";
 
   private final SecretKeySpec key;
-  private final Duration ttl;
+  private final Duration accessTtl;
+  private final Duration refreshTtl;
 
   HmacTokenServiceAdapter(
-      @Value("${iam.token.secret}") String secret, @Value("${iam.token.expiration-hours:2}") long expirationHours) {
+      @Value("${iam.token.secret}") String secret,
+      @Value("${iam.token.expiration-minutes:15}") long accessExpirationMinutes,
+      @Value("${iam.refresh-token.expiration-days:7}") long refreshExpirationDays) {
     if (secret == null || secret.isBlank()) {
       throw new IllegalStateException("iam.token.secret es obligatorio");
     }
     this.key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), ALGORITHM);
-    this.ttl = Duration.ofHours(expirationHours);
+    this.accessTtl = Duration.ofMinutes(accessExpirationMinutes);
+    this.refreshTtl = Duration.ofDays(refreshExpirationDays);
   }
 
   @Override
-  public AccessToken issue(UserId userId) {
-    Instant expiresAt = Instant.now().plus(ttl);
-    String payload = userId.value() + "|" + expiresAt.toEpochMilli();
-    String token = encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + encode(sign(payload));
-    return new AccessToken(token, expiresAt);
+  public TokenPair issue(UserId userId) {
+    Instant now = Instant.now();
+    Instant accessExpiresAt = now.plus(accessTtl);
+    Instant refreshExpiresAt = now.plus(refreshTtl);
+    AccessToken accessToken = new AccessToken(buildToken(TYPE_ACCESS, userId, accessExpiresAt), accessExpiresAt);
+    RefreshToken refreshToken = new RefreshToken(buildToken(TYPE_REFRESH, userId, refreshExpiresAt), refreshExpiresAt);
+    return new TokenPair(accessToken, refreshToken);
   }
 
   @Override
-  public Optional<UserId> validate(String tokenValue) {
+  public Optional<UserId> validate(String accessTokenValue) {
+    return decode(accessTokenValue).filter(decoded -> decoded.type().equals(TYPE_ACCESS)).map(DecodedToken::userId);
+  }
+
+  @Override
+  public Optional<UserId> validateRefreshToken(String refreshTokenValue) {
+    return decode(refreshTokenValue).filter(decoded -> decoded.type().equals(TYPE_REFRESH)).map(DecodedToken::userId);
+  }
+
+  @Override
+  public Optional<Instant> expiresAt(String tokenValue) {
+    return decode(tokenValue).map(DecodedToken::expiresAt);
+  }
+
+  private String buildToken(String type, UserId userId, Instant expiresAt) {
+    String payload = type + "|" + userId.value() + "|" + expiresAt.toEpochMilli();
+    return encode(payload.getBytes(StandardCharsets.UTF_8)) + "." + encode(sign(payload));
+  }
+
+  private Optional<DecodedToken> decode(String tokenValue) {
     String[] parts = tokenValue.split("\\.", 2);
     if (parts.length != 2) {
       return Optional.empty();
@@ -61,8 +91,8 @@ class HmacTokenServiceAdapter implements TokenService {
     byte[] payloadBytes;
     byte[] receivedSignature;
     try {
-      payloadBytes = decode(parts[0]);
-      receivedSignature = decode(parts[1]);
+      payloadBytes = decodeBase64(parts[0]);
+      receivedSignature = decodeBase64(parts[1]);
     } catch (IllegalArgumentException malformedBase64) {
       return Optional.empty();
     }
@@ -75,16 +105,17 @@ class HmacTokenServiceAdapter implements TokenService {
       return Optional.empty();
     }
 
-    String[] payloadParts = payload.split("\\|", 2);
-    if (payloadParts.length != 2) {
+    String[] payloadParts = payload.split("\\|", 3);
+    if (payloadParts.length != 3) {
       return Optional.empty();
     }
     try {
-      Instant expiresAt = Instant.ofEpochMilli(Long.parseLong(payloadParts[1]));
+      Instant expiresAt = Instant.ofEpochMilli(Long.parseLong(payloadParts[2]));
       if (Instant.now().isAfter(expiresAt)) {
         return Optional.empty();
       }
-      return Optional.of(UserId.of(UUID.fromString(payloadParts[0])));
+      UserId userId = UserId.of(UUID.fromString(payloadParts[1]));
+      return Optional.of(new DecodedToken(payloadParts[0], userId, expiresAt));
     } catch (RuntimeException malformed) {
       return Optional.empty();
     }
@@ -104,7 +135,9 @@ class HmacTokenServiceAdapter implements TokenService {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(raw);
   }
 
-  private byte[] decode(String encoded) {
+  private byte[] decodeBase64(String encoded) {
     return Base64.getUrlDecoder().decode(encoded);
   }
+
+  private record DecodedToken(String type, UserId userId, Instant expiresAt) {}
 }

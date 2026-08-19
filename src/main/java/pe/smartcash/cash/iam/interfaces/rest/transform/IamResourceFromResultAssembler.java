@@ -1,9 +1,9 @@
 package pe.smartcash.cash.iam.interfaces.rest.transform;
 
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
-import pe.smartcash.cash.iam.domain.services.AccessToken;
-import pe.smartcash.cash.iam.interfaces.rest.resources.AccessTokenResource;
+import pe.smartcash.cash.iam.domain.services.TokenPair;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignUpResultResource;
+import pe.smartcash.cash.iam.interfaces.rest.resources.TokenPairResource;
 
 public final class IamResourceFromResultAssembler {
 
@@ -13,7 +13,11 @@ public final class IamResourceFromResultAssembler {
     return new SignUpResultResource(userId.value());
   }
 
-  public static AccessTokenResource toAccessTokenResource(AccessToken accessToken) {
-    return new AccessTokenResource(accessToken.value(), accessToken.expiresAt());
+  public static TokenPairResource toTokenPairResource(TokenPair tokenPair) {
+    return new TokenPairResource(
+        tokenPair.accessToken().value(),
+        tokenPair.accessToken().expiresAt(),
+        tokenPair.refreshToken().value(),
+        tokenPair.refreshToken().expiresAt());
   }
 }
