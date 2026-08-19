@@ -6,11 +6,13 @@ import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import pe.smartcash.cash.shared.infrastructure.ratelimiting.RateLimitExceededException;
 
 /**
  * Manejo genérico, transversal a todos los bounded contexts. Excepciones propias de un
@@ -38,6 +40,13 @@ public class GlobalExceptionHandler {
   public ResponseEntity<ApiError> handleBadRequest(IllegalArgumentException ex, HttpServletRequest request) {
     return ResponseEntity.badRequest()
         .body(new ApiError(Instant.now(), 400, "Bad Request", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(RateLimitExceededException.class)
+  public ResponseEntity<ApiError> handleRateLimitExceeded(RateLimitExceededException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+        .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.retryAfterSeconds()))
+        .body(new ApiError(Instant.now(), 429, "Too Many Requests", ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(Exception.class)
