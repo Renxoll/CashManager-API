@@ -1,10 +1,12 @@
 package pe.smartcash.cash.transactions.infrastructure.persistence;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
 
 @Repository
 class TransactionRepositoryAdapter implements TransactionRepository {
@@ -31,5 +33,10 @@ class TransactionRepositoryAdapter implements TransactionRepository {
   @Override
   public Optional<Transaction> findById(TransactionId id) {
     return jpaRepository.findById(id.value()).map(TransactionEntityMapper::toDomain);
+  }
+
+  @Override
+  public List<Transaction> findAllByStatus(TransactionStatus status) {
+    return jpaRepository.findAllByStatus(status).stream().map(TransactionEntityMapper::toDomain).toList();
   }
 }
