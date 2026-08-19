@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,6 +48,11 @@ import pe.smartcash.cash.transactions.domain.services.TransactionExtractionServi
  * en el happy path. Mockearlo evita esa dependencia extra sin perder cobertura del
  * controller: el cacheo en Redis ya tiene su propio adaptador y no es lo que este test
  * ejercita.
+ *
+ * <p>La categorización corre en el worker async (ver {@code TransactionCommandServiceImpl.on
+ * (TransactionReceived)}), fuera del hilo del request: el POST siempre responde 202 con la
+ * fila todavía PENDING, y las aserciones de PROCESSED/FAILED hacen poll de la fila hasta que
+ * el listener la actualiza (o vencen el timeout).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -102,14 +108,9 @@ class TransactionWebhookControllerIT {
                     {"userId":"%s","rawText":"S/24.50 en Starbucks"}
                     """
                         .formatted(validUserId)))
-        .andExpect(status().isCreated());
+        .andExpect(status().isAccepted());
 
-    List<Map<String, Object>> rows =
-        jdbcTemplate.queryForList("SELECT status, amount, currency, merchant, raw_text FROM transactions WHERE user_id = ?", validUserId);
-
-    assertThat(rows).hasSize(1);
-    Map<String, Object> saved = rows.get(0);
-    assertThat(saved.get("status")).isEqualTo("PROCESSED");
+    Map<String, Object> saved = awaitTransactionStatus(validUserId, "PROCESSED");
     assertThat((BigDecimal) saved.get("amount")).isEqualByComparingTo("24.50");
     assertThat(saved.get("currency")).isEqualTo("PEN");
     assertThat(saved.get("merchant")).isEqualTo("Starbucks");
@@ -117,7 +118,7 @@ class TransactionWebhookControllerIT {
   }
 
   @Test
-  void shouldReturn422AndSaveFailedStateWhenLLMFails() throws Exception {
+  void shouldReturn202AndEventuallySaveFailedStateWhenLLMFails() throws Exception {
     when(extractionService.extract(anyString()))
         .thenThrow(new TransactionExtractionFailedException("El LLM no devolvió un JSON válido tras reintento"));
 
@@ -133,17 +134,28 @@ class TransactionWebhookControllerIT {
                     {"userId":"%s","rawText":"%s"}
                     """
                         .formatted(validUserId, rawText)))
-        .andExpect(status().isUnprocessableContent());
+        .andExpect(status().isAccepted());
 
-    // CRÍTICO: prueba en vivo de que @Transactional(noRollbackFor = ...) funciona. Si el
-    // rollback no estuviera excluido para esta excepción, esta fila no existiría — la
-    // transacción completa (incluido este INSERT) se habría revertido junto con la
-    // excepción que Spring Security/MVC propaga hacia el exception handler.
-    List<Map<String, Object>> rows = jdbcTemplate.queryForList("SELECT status, raw_text FROM transactions WHERE user_id = ?", validUserId);
+    Map<String, Object> saved = awaitTransactionStatus(validUserId, "FAILED");
+    assertThat(saved.get("raw_text")).isEqualTo(rawText);
+  }
 
-    assertThat(rows).hasSize(1);
-    assertThat(rows.get(0).get("status")).isEqualTo("FAILED");
-    assertThat(rows.get(0).get("raw_text")).isEqualTo(rawText);
+  /**
+   * El worker async corre en el {@code ThreadPoolTaskExecutor} de {@code AsyncConfig}, no en
+   * el hilo del test: sin este poll, leer la fila inmediatamente después del POST casi
+   * siempre la encontraría todavía PENDING.
+   */
+  private Map<String, Object> awaitTransactionStatus(UUID userId, String expectedStatus) throws InterruptedException {
+    Instant deadline = Instant.now().plusSeconds(5);
+    while (Instant.now().isBefore(deadline)) {
+      List<Map<String, Object>> rows =
+          jdbcTemplate.queryForList("SELECT status, amount, currency, merchant, raw_text FROM transactions WHERE user_id = ?", userId);
+      if (!rows.isEmpty() && expectedStatus.equals(rows.get(0).get("status"))) {
+        return rows.get(0);
+      }
+      Thread.sleep(50);
+    }
+    throw new AssertionError("La transacción de " + userId + " no llegó a " + expectedStatus + " a tiempo");
   }
 
   @Test
