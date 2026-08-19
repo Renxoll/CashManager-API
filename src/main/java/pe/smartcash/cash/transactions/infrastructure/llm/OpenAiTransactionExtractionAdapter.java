@@ -1,5 +1,6 @@
 package pe.smartcash.cash.transactions.infrastructure.llm;
 
+import io.sentry.Sentry;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -68,11 +69,21 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
       try {
         return callAndParse(repairPrompt);
       } catch (JacksonException stillMalformed) {
-        throw new TransactionExtractionFailedException("El LLM no devolvió un JSON válido tras reintento", stillMalformed);
+        throw reportFailure(new TransactionExtractionFailedException("El LLM no devolvió un JSON válido tras reintento", stillMalformed));
       }
     } catch (RestClientException httpError) {
-      throw new TransactionExtractionFailedException("Fallo de comunicación con el proveedor de LLM", httpError);
+      throw reportFailure(new TransactionExtractionFailedException("Fallo de comunicación con el proveedor de LLM", httpError));
     }
+  }
+
+  /**
+   * El caller (ver {@code TransactionCommandServiceImpl.resolveExtraction}) atrapa esta
+   * excepción para persistir la transacción como FAILED sin volver a lanzarla, así que sin
+   * esta captura explícita el fallo de LLM nunca llegaría a Sentry.
+   */
+  private static TransactionExtractionFailedException reportFailure(TransactionExtractionFailedException ex) {
+    Sentry.captureException(ex, scope -> scope.setTag("component", "llm"));
+    return ex;
   }
 
   private ExtractionResult callAndParse(String userContent) {
@@ -89,7 +100,7 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
         llmRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
 
     if (response == null || response.choices() == null || response.choices().isEmpty()) {
-      throw new TransactionExtractionFailedException("El proveedor de LLM devolvió una respuesta sin choices");
+      throw reportFailure(new TransactionExtractionFailedException("El proveedor de LLM devolvió una respuesta sin choices"));
     }
 
     String content = response.choices().get(0).message().content();

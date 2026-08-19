@@ -1,5 +1,6 @@
 package pe.smartcash.cash.shared.interfaces.rest;
 
+import io.sentry.Sentry;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +43,10 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiError> handleUnexpected(Exception ex, HttpServletRequest request) {
     log.error("Error no controlado procesando el request", ex);
+    // Una vez que este @ExceptionHandler atrapa la excepción, Spring MVC la da por resuelta:
+    // la integración automática de Sentry (que escucha HandlerExceptionResolver) nunca la ve.
+    // Por eso se captura acá explícitamente en vez de depender del auto-reporting del starter.
+    Sentry.captureException(ex, scope -> scope.setTag("component", "unhandled"));
     return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
         .body(new ApiError(Instant.now(), 500, "Internal Server Error", "Ocurrió un error inesperado", request.getRequestURI()));
   }
