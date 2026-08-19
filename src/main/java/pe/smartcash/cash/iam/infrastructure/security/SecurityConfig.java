@@ -42,6 +42,11 @@ class SecurityConfig {
                         "/api/v1/iam/sign-in",
                         "/api/v1/iam/refresh",
                         "/api/v1/subscriptions/stripe-webhook",
+                        // SendGrid Inbound Parse no manda Bearer (ni puede: no es un cliente
+                        // de nuestra API); el token de query (?token=) en
+                        // SendGridInboundWebhookController es la autenticación real acá,
+                        // igual que la firma HMAC lo es para el webhook de Stripe arriba.
+                        "/api/v1/transactions/inbound",
                         "/api/v1/system/ping",
                         "/actuator/health",
                         "/swagger-ui/**",

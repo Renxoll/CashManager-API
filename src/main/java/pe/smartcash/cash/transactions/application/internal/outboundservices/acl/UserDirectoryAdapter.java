@@ -3,6 +3,7 @@ package pe.smartcash.cash.transactions.application.internal.outboundservices.acl
 import java.util.Optional;
 import org.springframework.stereotype.Component;
 import pe.smartcash.cash.profile.domain.model.queries.FindUserProfileByIdQuery;
+import pe.smartcash.cash.profile.domain.model.queries.FindUserProfileByInboxAddressQuery;
 import pe.smartcash.cash.profile.domain.services.UserProfileDetail;
 import pe.smartcash.cash.profile.domain.services.UserProfileQueryService;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
@@ -37,6 +38,14 @@ class UserDirectoryAdapter implements UserDirectory {
         .map(UserProfileDetail::fcmToken)
         .filter(token -> token != null && !token.isBlank())
         .map(NotificationTarget::new);
+  }
+
+  @Override
+  public Optional<UserId> findUserIdByInboxAddress(String inboxAddress) {
+    return userProfileQueryService
+        .handle(new FindUserProfileByInboxAddressQuery(inboxAddress))
+        .map(UserProfileDetail::userId)
+        .map(profileUserId -> UserId.of(profileUserId.value()));
   }
 
   private Optional<UserProfileDetail> findProfile(UserId userId) {
