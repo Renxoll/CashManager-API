@@ -22,6 +22,7 @@ repositories {
 
 ext {
   set('springModulithVersion', "2.1.0")
+  set('bucket4jVersion', "8.10.1")
 }
 
 dependencies {
@@ -39,6 +40,19 @@ dependencies {
   implementation 'org.flywaydb:flyway-database-postgresql'
   implementation 'com.google.firebase:firebase-admin:9.4.1'
   implementation 'com.stripe:stripe-java:33.3.0'
+  // Observabilidad: captura de excepciones no controladas + fallos de LLM/Stripe (ver
+  // GlobalExceptionHandler, StripeWebhookController, OpenAiTransactionExtractionAdapter).
+  // SDK base, NO el starter (sentry-spring-boot-starter-jakarta): a la fecha, ese starter
+  // solo declara compatibilidad con Spring Boot 3.x -- su auto-configuración referencia
+  // clases que Boot 4.1 reubicó (p. ej. RestClientCustomizer) y rompe el arranque. Se
+  // inicializa a mano en SentryConfig, sin depender de esa auto-configuración.
+  implementation 'io.sentry:sentry:8.16.0'
+  // Rate limiting distribuido: el mismo Redis que ya usa el cache de comercios y la
+  // blacklist de tokens, así que no se suma infraestructura nueva, solo un uso más.
+  // (com.bucket4j no publica bucket4j-bom pese al nombre, así que ambos módulos se fijan
+  // a la misma versión a mano.)
+  implementation "com.bucket4j:bucket4j-core:${bucket4jVersion}"
+  implementation "com.bucket4j:bucket4j-redis:${bucket4jVersion}"
   compileOnly 'org.projectlombok:lombok'
   developmentOnly 'org.springframework.boot:spring-boot-devtools'
   developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
