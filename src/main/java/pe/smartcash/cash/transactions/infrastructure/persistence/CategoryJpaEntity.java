@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-class CategoryJpaEntity {
+public class CategoryJpaEntity {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)

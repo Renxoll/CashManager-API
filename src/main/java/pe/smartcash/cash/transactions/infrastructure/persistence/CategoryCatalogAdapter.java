@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.services.CategoryCatalog;
 import pe.smartcash.cash.transactions.domain.services.CategoryDescriptor;
+import pe.smartcash.cash.transactions.infrastructure.persistence.jpa.repositories.CategoryJpaRepository;
 
 @Component
 class CategoryCatalogAdapter implements CategoryCatalog {

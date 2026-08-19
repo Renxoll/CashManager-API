@@ -30,7 +30,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatu
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-class TransactionJpaEntity {
+public class TransactionJpaEntity {
 
   @Id private UUID id;
 

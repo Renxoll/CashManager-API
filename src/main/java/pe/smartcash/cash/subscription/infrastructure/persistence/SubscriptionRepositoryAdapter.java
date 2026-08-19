@@ -7,6 +7,7 @@ import pe.smartcash.cash.subscription.domain.model.aggregates.SubscriptionReposi
 import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionId;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionStatus;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.subscription.infrastructure.persistence.jpa.repositories.SubscriptionSpringDataRepository;
 
 @Repository
 class SubscriptionRepositoryAdapter implements SubscriptionRepository {
