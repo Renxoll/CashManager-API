@@ -5,6 +5,7 @@ import com.stripe.model.Event;
 import com.stripe.model.StripeObject;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
+import io.sentry.Sentry;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -56,6 +57,9 @@ class StripeWebhookController {
       event = Webhook.constructEvent(payload, signatureHeader, webhookSecret);
     } catch (SignatureVerificationException invalidSignature) {
       log.warn("Firma de webhook de Stripe inválida: {}", invalidSignature.getMessage());
+      // No se relanza (Stripe reintentaría un webhook que nunca va a validar), así que sin
+      // esta captura explícita el fallo jamás llegaría a Sentry.
+      Sentry.captureException(invalidSignature, scope -> scope.setTag("component", "stripe-webhook"));
       return ResponseEntity.badRequest().build();
     }
 
