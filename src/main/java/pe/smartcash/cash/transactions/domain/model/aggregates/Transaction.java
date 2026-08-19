@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionCategorized;
+import pe.smartcash.cash.transactions.domain.model.events.TransactionReceived;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.ExtractionSource;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
@@ -47,9 +48,15 @@ public final class Transaction {
     this.status = status;
   }
 
-  /** Punto de entrada al recibir un webhook nuevo: siempre nace PENDING. */
+  /**
+   * Punto de entrada al recibir un webhook nuevo: siempre nace PENDING y emite {@link
+   * TransactionReceived} para que la categorización (que depende del LLM) se dispare async,
+   * fuera del ciclo request/response.
+   */
   public static Transaction receive(TransactionId id, UserId userId, String rawText, Instant receivedAt) {
-    return new Transaction(id, userId, rawText, receivedAt, TransactionStatus.PENDING);
+    Transaction transaction = new Transaction(id, userId, rawText, receivedAt, TransactionStatus.PENDING);
+    transaction.domainEvents.add(new TransactionReceived(id, userId, rawText, receivedAt));
+    return transaction;
   }
 
   /** Reconstrucción desde persistencia: restaura estado sin re-aplicar invariantes de creación. */
