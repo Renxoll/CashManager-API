@@ -9,7 +9,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pe.smartcash.cash.shared.interfaces.rest.ApiError;
-import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 
 /**
@@ -27,17 +26,5 @@ class TransactionExceptionHandler {
   ResponseEntity<ApiError> handleUserNotFound(UserNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
-  }
-
-  /**
-   * La transacción ya quedó persistida como FAILED (con el rawText intacto) antes de que el
-   * caso de uso lanzara esto — ver {@code TransactionCommandServiceImpl}. 422 porque el
-   * request en sí era válido: es la extracción semántica la que no se pudo completar, no
-   * algo que el emisor del webhook deba reintentar ciegamente.
-   */
-  @ExceptionHandler(TransactionExtractionFailedException.class)
-  ResponseEntity<ApiError> handleExtractionFailed(TransactionExtractionFailedException ex, HttpServletRequest request) {
-    return ResponseEntity.status(HttpStatus.UNPROCESSABLE_CONTENT)
-        .body(new ApiError(Instant.now(), 422, "Unprocessable Content", ex.getMessage(), request.getRequestURI()));
   }
 }

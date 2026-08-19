@@ -3,6 +3,8 @@ package pe.smartcash.cash.transactions.application.internal.commandservices;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
@@ -12,6 +14,7 @@ import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionReposit
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionCategorized;
+import pe.smartcash.cash.transactions.domain.model.events.TransactionReceived;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.ExtractionSource;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
@@ -33,6 +36,12 @@ import pe.smartcash.cash.transactions.domain.services.UserDirectory;
  * Implementación del caso de uso de escritura: recibir el texto crudo de una notificación
  * bancaria, categorizarlo y dejarlo listo para el usuario. Orquesta puertos de dominio; toda
  * regla de negocio real vive en {@link Transaction} y en la política de notificación, no acá.
+ *
+ * <p>La ingestión ({@code handle(IngestBankNotificationCommand)}) y la categorización
+ * ({@code on(TransactionReceived)}) son dos casos de uso separados a propósito: el primero es
+ * rápido y determinístico (solo persiste PENDING), el segundo depende del LLM (lento, puede
+ * fallar) y corre async vía {@link ApplicationModuleListener} — ver {@code
+ * TransactionWebhookController}, que responde 202 apenas termina el primero.
  */
 @Service
 class TransactionCommandServiceImpl implements TransactionCommandService {
@@ -43,6 +52,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
   private final BankNotificationHeuristicParser heuristicParser;
   private final UserDirectory userDirectory;
   private final CategorizedExpenseNotificationPolicy notificationPolicy;
+  private final ApplicationEventPublisher eventPublisher;
   private final Clock clock;
 
   TransactionCommandServiceImpl(
@@ -52,6 +62,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
       BankNotificationHeuristicParser heuristicParser,
       UserDirectory userDirectory,
       CategorizedExpenseNotificationPolicy notificationPolicy,
+      ApplicationEventPublisher eventPublisher,
       Clock clock) {
     this.transactionRepository = transactionRepository;
     this.extractionService = extractionService;
@@ -59,11 +70,12 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     this.heuristicParser = heuristicParser;
     this.userDirectory = userDirectory;
     this.notificationPolicy = notificationPolicy;
+    this.eventPublisher = eventPublisher;
     this.clock = clock;
   }
 
   @Override
-  @Transactional(noRollbackFor = TransactionExtractionFailedException.class)
+  @Transactional
   public TransactionId handle(IngestBankNotificationCommand command) {
     UserId userId = UserId.parse(command.userId());
     if (!userDirectory.exists(userId)) {
@@ -71,17 +83,45 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     }
 
     Transaction transaction = Transaction.receive(TransactionId.newId(), userId, command.rawText(), clock.instant());
+    transactionRepository.save(transaction);
 
-    Extraction extraction = resolveExtraction(command.rawText());
+    // Publicar ANTES de que termine la transacción (no después): con
+    // spring-modulith-starter-jpa, la publicación queda registrada en la tabla
+    // event_publication en el mismo commit, así que si el proceso muere antes de que el
+    // listener async corra, el evento no se pierde — queda pendiente para reintento.
+    for (Object event : transaction.pullDomainEvents()) {
+      if (event instanceof TransactionReceived received) {
+        eventPublisher.publishEvent(received);
+      }
+    }
+
+    return transaction.id();
+  }
+
+  /**
+   * Worker asíncrono: {@code @ApplicationModuleListener} ya compone {@code @Async}, {@code
+   * @TransactionalEventListener(phase = AFTER_COMMIT)} y {@code
+   * @Transactional(propagation = REQUIRES_NEW)} -- por eso no lleva un {@code @Transactional}
+   * propio, que pisaría esa propagación. Corre recién después del commit de {@code
+   * handle(IngestBankNotificationCommand)}, en el {@code ThreadPoolTaskExecutor} de {@code
+   * AsyncConfig}, nunca en el hilo del request HTTP.
+   */
+  @ApplicationModuleListener
+  void on(TransactionReceived event) {
+    Transaction transaction =
+        transactionRepository
+            .findById(event.transactionId())
+            .orElseThrow(() -> new IllegalStateException("Transacción PENDING no encontrada: " + event.transactionId()));
+
+    Extraction extraction = resolveExtraction(transaction.rawText());
 
     if (extraction.failed()) {
-      // Se persiste el FAILED (con el rawText intacto) ANTES de lanzar: noRollbackFor
-      // evita que Spring deshaga este save al ver la excepción no controlada propagarse.
-      // El caso de uso lanza para que el borde REST responda 422, no 2xx con un body que
-      // el emisor del webhook tendría que inspeccionar para enterarse de que falló.
+      // A diferencia del flujo síncrono anterior, acá nadie está esperando una respuesta
+      // HTTP: se persiste FAILED y se corta, sin relanzar. El fallo de LLM ya quedó
+      // reportado a Sentry en el punto donde se originó (OpenAiTransactionExtractionAdapter).
       transaction.failExtraction(extraction.errorMessage());
       transactionRepository.save(transaction);
-      throw new TransactionExtractionFailedException(extraction.errorMessage());
+      return;
     }
 
     transaction.categorize(extraction.money(), extraction.merchant(), extraction.categoryCode(), extraction.source(), clock.instant());
@@ -91,14 +131,11 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
       merchantCategoryCache.remember(extraction.merchant(), extraction.categoryCode());
     }
 
-    // El agregado ya emitió el evento al categorizar; acá se despacha tras persistir.
-    for (Object event : transaction.pullDomainEvents()) {
-      if (event instanceof TransactionCategorized categorized) {
+    for (Object domainEvent : transaction.pullDomainEvents()) {
+      if (domainEvent instanceof TransactionCategorized categorized) {
         notificationPolicy.enforce(categorized);
       }
     }
-
-    return transaction.id();
   }
 
   @Override
