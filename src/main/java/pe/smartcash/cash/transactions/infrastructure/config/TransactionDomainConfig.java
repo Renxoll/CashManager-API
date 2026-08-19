@@ -1,10 +1,14 @@
 package pe.smartcash.cash.transactions.infrastructure.config;
 
 import java.time.Clock;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import pe.smartcash.cash.transactions.domain.policy.AllowlistedBankSenderPolicy;
 import pe.smartcash.cash.transactions.domain.policy.CategorizedExpenseNotificationPolicy;
 import pe.smartcash.cash.transactions.domain.policy.DefaultCategorizedExpenseNotificationPolicy;
+import pe.smartcash.cash.transactions.domain.policy.TrustedBankSenderPolicy;
 import pe.smartcash.cash.transactions.domain.services.CategoryCatalog;
 import pe.smartcash.cash.transactions.domain.services.TransactionNotifier;
 import pe.smartcash.cash.transactions.domain.services.UserDirectory;
@@ -26,6 +30,12 @@ class TransactionDomainConfig {
   CategorizedExpenseNotificationPolicy categorizedExpenseNotificationPolicy(
       UserDirectory userDirectory, TransactionNotifier notifier, CategoryCatalog categoryCatalog) {
     return new DefaultCategorizedExpenseNotificationPolicy(userDirectory, notifier, categoryCatalog);
+  }
+
+  @Bean
+  TrustedBankSenderPolicy trustedBankSenderPolicy(
+      @Value("#{'${app.inbound-email.trusted-sender-domains}'.split(',')}") Set<String> trustedDomains) {
+    return new AllowlistedBankSenderPolicy(trustedDomains);
   }
 
   @Bean

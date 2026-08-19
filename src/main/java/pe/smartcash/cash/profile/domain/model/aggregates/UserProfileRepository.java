@@ -7,5 +7,7 @@ public interface UserProfileRepository {
 
   Optional<UserProfile> findById(UserId userId);
 
+  Optional<UserProfile> findByInboxAddress(String inboxAddress);
+
   void save(UserProfile userProfile);
 }

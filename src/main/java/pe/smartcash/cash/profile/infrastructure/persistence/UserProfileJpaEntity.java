@@ -27,6 +27,9 @@ public class UserProfileJpaEntity {
   @Column(name = "fcm_token")
   private String fcmToken;
 
+  @Column(name = "inbox_address", nullable = false, unique = true, updatable = false)
+  private String inboxAddress;
+
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
 

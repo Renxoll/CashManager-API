@@ -9,6 +9,11 @@ public final class UserProfileResourceFromEntityAssembler {
 
   public static UserProfileResource toResourceFromEntity(UserProfileDetail detail) {
     return new UserProfileResource(
-        detail.userId().value(), detail.displayName(), detail.fcmToken(), detail.createdAt(), detail.updatedAt());
+        detail.userId().value(),
+        detail.displayName(),
+        detail.fcmToken(),
+        detail.inboxAddress(),
+        detail.createdAt(),
+        detail.updatedAt());
   }
 }

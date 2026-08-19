@@ -22,6 +22,11 @@ class UserProfileRepositoryAdapter implements UserProfileRepository {
   }
 
   @Override
+  public Optional<UserProfile> findByInboxAddress(String inboxAddress) {
+    return jpaRepository.findByInboxAddress(inboxAddress).map(UserProfileEntityMapper::toDomain);
+  }
+
+  @Override
   public void save(UserProfile userProfile) {
     jpaRepository.save(UserProfileEntityMapper.toJpaEntity(userProfile));
   }

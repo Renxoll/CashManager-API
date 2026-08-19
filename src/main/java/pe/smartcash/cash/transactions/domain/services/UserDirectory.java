@@ -13,4 +13,7 @@ public interface UserDirectory {
   boolean exists(UserId userId);
 
   Optional<NotificationTarget> findNotificationTarget(UserId userId);
+
+  /** Resuelve el dueño de una dirección de ingesta por correo (ver ingesta por SendGrid). */
+  Optional<UserId> findUserIdByInboxAddress(String inboxAddress);
 }
