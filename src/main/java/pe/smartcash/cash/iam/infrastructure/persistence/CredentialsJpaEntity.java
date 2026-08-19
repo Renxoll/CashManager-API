@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-class CredentialsJpaEntity {
+public class CredentialsJpaEntity {
 
   @Id private UUID id;
 
