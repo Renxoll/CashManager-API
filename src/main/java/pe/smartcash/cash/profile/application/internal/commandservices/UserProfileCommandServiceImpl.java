@@ -2,6 +2,7 @@ package pe.smartcash.cash.profile.application.internal.commandservices;
 
 import java.time.Clock;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.profile.domain.exception.UserProfileAlreadyRegisteredException;
@@ -18,10 +19,13 @@ class UserProfileCommandServiceImpl implements UserProfileCommandService {
 
   private final UserProfileRepository userProfileRepository;
   private final Clock clock;
+  private final String inboxDomain;
 
-  UserProfileCommandServiceImpl(UserProfileRepository userProfileRepository, Clock clock) {
+  UserProfileCommandServiceImpl(
+      UserProfileRepository userProfileRepository, Clock clock, @Value("${app.inbound-email.domain}") String inboxDomain) {
     this.userProfileRepository = userProfileRepository;
     this.clock = clock;
+    this.inboxDomain = inboxDomain;
   }
 
   @Override
@@ -33,7 +37,9 @@ class UserProfileCommandServiceImpl implements UserProfileCommandService {
     if (userProfileRepository.findById(userId).isPresent()) {
       throw new UserProfileAlreadyRegisteredException(userId);
     }
-    UserProfile userProfile = UserProfile.register(userId, command.displayName(), clock.instant());
+    // El inboxAddress se genera acá mismo, en el onboarding: todo usuario registrado tiene
+    // uno desde el día uno, sin un paso de activación aparte que el usuario pueda saltarse.
+    UserProfile userProfile = UserProfile.register(userId, command.displayName(), inboxDomain, clock.instant());
     userProfileRepository.save(userProfile);
     return userId;
   }
