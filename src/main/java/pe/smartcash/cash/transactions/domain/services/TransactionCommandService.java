@@ -1,6 +1,7 @@
 package pe.smartcash.cash.transactions.domain.services;
 
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 
 /**
@@ -12,4 +13,6 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 public interface TransactionCommandService {
 
   TransactionId handle(IngestBankNotificationCommand command);
+
+  RetryFailedTransactionsResult handle(RetryFailedTransactionsCommand command);
 }

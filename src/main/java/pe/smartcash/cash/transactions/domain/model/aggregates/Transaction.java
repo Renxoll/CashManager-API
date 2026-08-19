@@ -95,6 +95,24 @@ public final class Transaction {
     this.status = TransactionStatus.FAILED;
   }
 
+  /**
+   * Reproceso de una transacción que había quedado FAILED: mismo resultado final que
+   * {@link #categorize}, pero exige el estado previo contrario (FAILED, no PENDING) — una
+   * transacción PROCESSED no se reprocesa, y una PENDING todavía no terminó su primer
+   * intento. Limpia el {@code errorMessage} del intento fallido anterior.
+   */
+  public void retryExtraction(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, Instant processedAt) {
+    requireStatus(TransactionStatus.FAILED, "reprocesar");
+    this.money = Objects.requireNonNull(money, "money");
+    this.merchant = Objects.requireNonNull(merchant, "merchant");
+    this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
+    this.extractionSource = Objects.requireNonNull(source, "extractionSource");
+    this.processedAt = Objects.requireNonNull(processedAt, "processedAt");
+    this.errorMessage = null;
+    this.status = TransactionStatus.PROCESSED;
+    this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, categoryCode, processedAt));
+  }
+
   private void requireStatus(TransactionStatus expected, String action) {
     if (this.status != expected) {
       throw new IllegalStateException(
