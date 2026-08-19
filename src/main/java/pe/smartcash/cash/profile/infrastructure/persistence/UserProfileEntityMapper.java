@@ -12,6 +12,7 @@ final class UserProfileEntityMapper {
         .id(profile.userId().value())
         .displayName(profile.displayName())
         .fcmToken(profile.fcmToken())
+        .inboxAddress(profile.inboxAddress())
         .createdAt(profile.createdAt())
         .updatedAt(profile.updatedAt())
         .build();
@@ -19,6 +20,11 @@ final class UserProfileEntityMapper {
 
   static UserProfile toDomain(UserProfileJpaEntity entity) {
     return UserProfile.rehydrate(
-        UserId.of(entity.getId()), entity.getDisplayName(), entity.getFcmToken(), entity.getCreatedAt(), entity.getUpdatedAt());
+        UserId.of(entity.getId()),
+        entity.getDisplayName(),
+        entity.getFcmToken(),
+        entity.getInboxAddress(),
+        entity.getCreatedAt(),
+        entity.getUpdatedAt());
   }
 }
