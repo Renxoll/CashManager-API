@@ -41,6 +41,7 @@ class SecurityConfig {
                         "/api/v1/iam/sign-up",
                         "/api/v1/iam/sign-in",
                         "/api/v1/iam/refresh",
+                        "/api/v1/subscriptions/stripe-webhook",
                         "/api/v1/system/ping",
                         "/actuator/health",
                         "/swagger-ui/**",
