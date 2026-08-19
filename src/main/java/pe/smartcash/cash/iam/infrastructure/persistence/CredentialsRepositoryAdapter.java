@@ -6,6 +6,7 @@ import pe.smartcash.cash.iam.domain.model.aggregates.Credentials;
 import pe.smartcash.cash.iam.domain.model.aggregates.CredentialsRepository;
 import pe.smartcash.cash.iam.domain.model.valueobjects.Email;
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.iam.infrastructure.persistence.jpa.repositories.CredentialsJpaRepository;
 
 @Repository
 class CredentialsRepositoryAdapter implements CredentialsRepository {

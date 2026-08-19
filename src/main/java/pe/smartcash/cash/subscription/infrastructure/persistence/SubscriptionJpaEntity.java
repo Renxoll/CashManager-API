@@ -21,7 +21,7 @@ import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionStat
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-class SubscriptionJpaEntity {
+public class SubscriptionJpaEntity {
 
   @Id private UUID id;
 
