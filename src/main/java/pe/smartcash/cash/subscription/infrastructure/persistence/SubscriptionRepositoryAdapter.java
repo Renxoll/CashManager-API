@@ -7,13 +7,14 @@ import pe.smartcash.cash.subscription.domain.model.aggregates.SubscriptionReposi
 import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionId;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.SubscriptionStatus;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.subscription.infrastructure.persistence.jpa.repositories.SubscriptionSpringDataRepository;
 
 @Repository
 class SubscriptionRepositoryAdapter implements SubscriptionRepository {
 
-  private final SubscriptionJpaRepository jpaRepository;
+  private final SubscriptionSpringDataRepository jpaRepository;
 
-  SubscriptionRepositoryAdapter(SubscriptionJpaRepository jpaRepository) {
+  SubscriptionRepositoryAdapter(SubscriptionSpringDataRepository jpaRepository) {
     this.jpaRepository = jpaRepository;
   }
 

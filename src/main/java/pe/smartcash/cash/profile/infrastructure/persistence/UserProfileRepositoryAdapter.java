@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import pe.smartcash.cash.profile.domain.model.aggregates.UserProfile;
 import pe.smartcash.cash.profile.domain.model.aggregates.UserProfileRepository;
 import pe.smartcash.cash.profile.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.profile.infrastructure.persistence.jpa.repositories.UserProfileJpaRepository;
 
 @Repository
 class UserProfileRepositoryAdapter implements UserProfileRepository {

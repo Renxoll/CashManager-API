@@ -1,5 +1,6 @@
 package pe.smartcash.cash.iam.interfaces.rest;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -16,12 +17,14 @@ import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 class IamExceptionHandler {
 
   @ExceptionHandler(EmailAlreadyRegisteredException.class)
-  ResponseEntity<ApiError> handleEmailAlreadyRegistered(EmailAlreadyRegisteredException ex) {
-    return ResponseEntity.status(HttpStatus.CONFLICT).body(new ApiError(Instant.now(), 409, "Conflict", ex.getMessage()));
+  ResponseEntity<ApiError> handleEmailAlreadyRegistered(EmailAlreadyRegisteredException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(new ApiError(Instant.now(), 409, "Conflict", ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(InvalidCredentialsException.class)
-  ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException ex) {
-    return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(Instant.now(), 401, "Unauthorized", ex.getMessage()));
+  ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        .body(new ApiError(Instant.now(), 401, "Unauthorized", ex.getMessage(), request.getRequestURI()));
   }
 }

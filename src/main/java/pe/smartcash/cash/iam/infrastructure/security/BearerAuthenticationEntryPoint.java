@@ -30,7 +30,13 @@ class BearerAuthenticationEntryPoint implements AuthenticationEntryPoint {
     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
     response.setContentType(MediaType.APPLICATION_JSON_VALUE);
     response.setCharacterEncoding("UTF-8");
-    ApiError body = new ApiError(Instant.now(), 401, "Unauthorized", "Se requiere un token válido (Authorization: Bearer <token>)");
+    ApiError body =
+        new ApiError(
+            Instant.now(),
+            401,
+            "Unauthorized",
+            "Se requiere un token válido (Authorization: Bearer <token>)",
+            request.getRequestURI());
     response.getWriter().write(objectMapper.writeValueAsString(body));
   }
 }

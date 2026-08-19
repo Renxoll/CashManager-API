@@ -17,7 +17,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-class UserProfileJpaEntity {
+public class UserProfileJpaEntity {
 
   @Id private UUID id;
 
