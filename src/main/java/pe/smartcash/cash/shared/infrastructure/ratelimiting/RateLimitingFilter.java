@@ -4,7 +4,6 @@ import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.BucketConfiguration;
 import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.Refill;
 import io.github.bucket4j.distributed.proxy.ProxyManager;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -64,7 +63,8 @@ class RateLimitingFilter extends OncePerRequestFilter {
   }
 
   private BucketConfiguration bucketConfiguration() {
-    return BucketConfiguration.builder().addLimit(Bandwidth.classic(capacity, Refill.intervally(capacity, window))).build();
+    Bandwidth limit = Bandwidth.builder().capacity(capacity).refillIntervally(capacity, window).build();
+    return BucketConfiguration.builder().addLimit(limit).build();
   }
 
   /**
