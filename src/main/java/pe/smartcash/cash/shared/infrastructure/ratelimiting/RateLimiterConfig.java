@@ -10,7 +10,7 @@ import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.codec.RedisCodec;
 import io.lettuce.core.codec.StringCodec;
 import java.time.Duration;
-import org.springframework.boot.data.redis.autoconfigure.DataRedisProperties;
+import org.springframework.boot.data.redis.autoconfigure.DataRedisConnectionDetails;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -20,16 +20,17 @@ import org.springframework.context.annotation.Configuration;
  * blacklist de tokens): bucket4j-redis necesita hablarle directo a una
  * {@link StatefulRedisConnection} con un codec de valor {@code byte[]} (así serializa el
  * estado del bucket), no la que expone spring-data-redis para sus propios templates. Se arma
- * a partir de {@link DataRedisProperties} (las mismas que ya resuelve Spring Boot desde
- * docker-compose en dev o desde {@code SPRING_DATA_REDIS_URL} en prod/Upstash) para no
- * duplicar configuración de conexión en dos lugares.
+ * a partir de {@link DataRedisConnectionDetails} (la misma que resuelve el
+ * {@code LettuceConnectionFactory} autoconfigurado, poblada por Spring Boot desde
+ * docker-compose en dev o desde {@code SPRING_DATA_REDIS_URL} en prod/Upstash) en vez de
+ * {@code DataRedisProperties}, que no refleja el puerto mapeado por docker-compose.
  */
 @Configuration
 class RateLimiterConfig {
 
   @Bean(destroyMethod = "shutdown")
-  RedisClient bucket4jRedisClient(DataRedisProperties redisProperties) {
-    return RedisClient.create(resolveUri(redisProperties));
+  RedisClient bucket4jRedisClient(DataRedisConnectionDetails connectionDetails) {
+    return RedisClient.create(resolveUri(connectionDetails));
   }
 
   @Bean(destroyMethod = "close")
@@ -47,18 +48,13 @@ class RateLimiterConfig {
         .build();
   }
 
-  private RedisURI resolveUri(DataRedisProperties redisProperties) {
-    // Prod (Upstash/Render) trae la URI completa con credenciales embebidas via
-    // spring.data.redis.url (ver application-prod.properties); dev/test la arma sola desde
-    // host/port porque spring-boot-docker-compose no puebla esa property, solo host/port.
-    if (redisProperties.getUrl() != null && !redisProperties.getUrl().isBlank()) {
-      return RedisURI.create(redisProperties.getUrl());
+  private RedisURI resolveUri(DataRedisConnectionDetails connectionDetails) {
+    DataRedisConnectionDetails.Standalone standalone = connectionDetails.getStandalone();
+    RedisURI.Builder builder = RedisURI.Builder.redis(standalone.getHost(), standalone.getPort());
+    if (connectionDetails.getPassword() != null) {
+      builder.withPassword(connectionDetails.getPassword().toCharArray());
     }
-    RedisURI.Builder builder = RedisURI.Builder.redis(redisProperties.getHost(), redisProperties.getPort());
-    if (redisProperties.getPassword() != null) {
-      builder.withPassword(redisProperties.getPassword().toCharArray());
-    }
-    if (redisProperties.getSsl().isEnabled()) {
+    if (connectionDetails.getSslBundle() != null) {
       builder.withSsl(true);
     }
     return builder.build();
