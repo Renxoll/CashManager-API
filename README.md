@@ -65,6 +65,85 @@ POST /api/v1/transactions/webhook  (requiere Authorization: Bearer <token>)
    disparando el push FCM (al token que Profile tenga guardado) → HTTP 201.
 ```
 
+## Ingesta de gastos por correo (bancos y billeteras electrónicas)
+
+El webhook JSON de arriba sirve para pruebas/integraciones directas, pero el flujo real
+de uso es que el usuario reenvíe las notificaciones que ya le manda su banco o su
+billetera (Yape, Plin, etc.) por correo, sin tipear nada a mano.
+
+```
+Onboarding (una vez, al registrar el perfil):
+  UserProfile.register() genera un inboxAddress determinístico:
+  alias-{sha256(userId)[:10]}@{app.inbound-email.domain}
+  (se consulta después vía GET /api/v1/profiles/me → inboxAddress)
+        │
+        ▼
+El usuario reenvía (o configura un forward automático de) sus alertas
+bancarias/de billetera a ese inboxAddress
+        │
+        ▼
+SendGrid Inbound Parse recibe el correo (MX del dominio apuntando a
+SendGrid) y hace POST multipart/form-data a:
+  POST /api/v1/transactions/inbound?token=<INBOUND_EMAIL_TOKEN>
+  { to, from, subject, text }
+        │
+        ▼
+SendGridInboundWebhookController valida el token (comparación en tiempo
+constante) y delega a TransactionCommandService.handle(IngestEmailedTransactionCommand)
+        │
+        ▼
+1. TrustedBankSenderPolicy revisa el dominio del "From" contra el
+   allowlist (app.inbound-email.trusted-sender-domains). Dominio no
+   confiable → se descarta en silencio (log), pero igual responde 200
+   (SendGrid reintenta agresivamente ante cualquier respuesta no-2xx,
+   y un remitente no confiable no se arregla reintentando).
+        │ (dominio confiable)
+        ▼
+2. UserDirectory.findUserIdByInboxAddress(to) resuelve el dueño del
+   buzón. Buzón inexistente (typo, reenvío mal dirigido) → mismo
+   descarte silencioso.
+        │ (buzón conocido)
+        ▼
+3. De acá en más es el mismo camino que el webhook JSON: Transaction.
+   receive() → PENDING → evento TransactionReceived → worker async
+   categoriza con el LLM (o el atajo de Redis si ya se vio ese
+   comercio antes) → PROCESSED/FAILED.
+```
+
+### Configuración necesaria
+
+| Variable | Default (dev) | Uso |
+|---|---|---|
+| `INBOUND_EMAIL_DOMAIN` | `inbox.smartcash.pe` | Dominio de los buzones generados (`alias-xxxx@...`). Debe coincidir con el dominio que SendGrid tiene configurado para Inbound Parse (MX apuntando a `mx.sendgrid.net`). |
+| `INBOUND_EMAIL_TOKEN` | placeholder de dev, **cambiar en cualquier despliegue real** | Secreto en el query param `?token=` del webhook — Inbound Parse no soporta headers custom, solo se configura la URL de destino. |
+| `INBOUND_EMAIL_TRUSTED_DOMAINS` | `bcp.com.pe,notificaciones.interbank.pe,bbva.pe` | Allowlist de dominios de remitente (`AllowlistedBankSenderPolicy`). Cualquier correo de un dominio fuera de esta lista se descarta como no confiable, aunque el buzón destino sí exista. |
+
+### Agregar un banco o billetera nueva (p. ej. Yape o Plin)
+
+**El allowlist de hoy no incluye dominios de Yape ni Plin** — solo los tres bancos de
+arriba. Sumar una billetera nueva no toca código, solo configuración:
+
+1. Conseguir un correo real de notificación de esa billetera (reenviado por un usuario
+   de prueba) y anotar el dominio real del remitente `From:`. `AllowlistedBankSenderPolicy`
+   compara solo el dominio después de la `@`, tolerando el formato típico
+   `"Yape <alertas@dominio.pe>"` (nombre visible + dirección entre `<>`) — pero el
+   dominio real hay que verlo en un correo de verdad, no adivinarlo.
+2. Sumar ese dominio a `INBOUND_EMAIL_TRUSTED_DOMAINS`, separado por coma
+   (`AllowlistedBankSenderPolicy` normaliza a minúsculas y hace trim de cada uno, así
+   que espacios extra no rompen nada).
+3. Redeploy con la variable actualizada — el allowlist se arma en memoria al arrancar
+   (`TransactionDomainConfig.trustedBankSenderPolicy`), no hay que migrar ni tocar Redis.
+
+El prompt de extracción (`ExtractionPrompts`) no asume un formato fijo de texto, así que
+el LLM debería poder extraer monto/comercio aunque la redacción de Yape/Plin difiera de
+la de un banco tradicional — pero vale la pena probarlo con un correo real antes de
+darlo por soportado del todo, sobre todo porque estas billeteras suelen mandar
+transferencias P2P ("le enviaste S/ 15 a Juan Pérez") además de pagos a comercios, y el
+heurístico de dominio (`BankNotificationHeuristicParser`, que asume "SÍMBOLO+monto en
+Comercio") probablemente no matchee ese texto — no es un problema (cae al LLM de
+todos modos), solo significa que el atajo de Redis por comercio no aplica para esos
+casos.
+
 ## Arquitectura DDD
 
 Cada bounded context tiene sus 4 capas. `domain` define **contratos** (agregados, value
