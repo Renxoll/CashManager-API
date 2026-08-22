@@ -1,0 +1,16 @@
+name: Keep backend warm
+
+# El backend corre en el plan free de Render, que se duerme tras 15 min de
+# inactividad (ver render.yaml). Este ping cada 10 minutos evita el cold
+# start para quien esté usando la app en ese momento.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: curl -sf --max-time 60 https://cashmanager-api.onrender.com/api/v1/system/ping
