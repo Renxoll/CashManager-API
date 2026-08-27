@@ -25,6 +25,13 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
 
   private static final String BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
 
+  // Heurístico de términos transaccionales en español para descubrir posibles notificaciones
+  // de banco/billetera de dominios todavía no confiables (ver findCandidateMessagesSince).
+  // Ajustable -- no es una garantía de precisión, solo acota el ruido frente a "toda la
+  // bandeja" (el candidato de todos modos nunca se ingesta directo, solo se encola).
+  private static final List<String> CANDIDATE_KEYWORDS =
+      List.of("S/", "cargo", "consumo", "abono", "transferencia", "compra por", "notificación de operación");
+
   private final RestClient.Builder restClientBuilder;
 
   GoogleGmailApiAdapter(RestClient.Builder restClientBuilder) {
@@ -33,8 +40,16 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
 
   @Override
   public List<GmailMessage> findMatchingMessagesSince(String accessToken, Instant since, Set<String> senderDomains) {
+    return search(accessToken, buildQuery(since, senderDomains));
+  }
+
+  @Override
+  public List<GmailMessage> findCandidateMessagesSince(String accessToken, Instant since, Set<String> excludeDomains) {
+    return search(accessToken, buildCandidateQuery(since, excludeDomains));
+  }
+
+  private List<GmailMessage> search(String accessToken, String query) {
     RestClient restClient = restClientBuilder.build();
-    String query = buildQuery(since, senderDomains);
 
     GmailMessageListResponse listResponse =
         restClient
@@ -74,9 +89,32 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
     return new GmailMessage(from, text);
   }
 
-  private String buildQuery(Instant since, Set<String> senderDomains) {
+  // Visibilidad de paquete (no private) a propósito: permite testear la construcción del
+  // query string con un test unitario acotado, sin necesitar credenciales ni red real.
+  String buildQuery(Instant since, Set<String> senderDomains) {
     String fromClause = senderDomains.stream().map(domain -> "from:" + domain).collect(Collectors.joining(" OR ", "(", ")"));
-    return since != null ? fromClause + " after:" + since.getEpochSecond() : fromClause;
+    return withSince(fromClause, since);
+  }
+
+  /**
+   * Términos transaccionales OR'd, excluyendo a nivel de query los dominios ya globalmente
+   * confiables ({@code -from:dominio}) -- así esta búsqueda y {@link #buildQuery} nunca
+   * pueden matchear el mismo mensaje, sin necesitar una columna de deduplicación por
+   * message-id.
+   */
+  String buildCandidateQuery(Instant since, Set<String> excludeDomains) {
+    String keywordClause = CANDIDATE_KEYWORDS.stream().map(this::quoteIfNeeded).collect(Collectors.joining(" OR ", "(", ")"));
+    String exclusions = excludeDomains.stream().map(domain -> "-from:" + domain).collect(Collectors.joining(" "));
+    String query = exclusions.isBlank() ? keywordClause : keywordClause + " " + exclusions;
+    return withSince(query, since);
+  }
+
+  private String quoteIfNeeded(String keyword) {
+    return keyword.contains(" ") ? "\"" + keyword + "\"" : keyword;
+  }
+
+  private String withSince(String query, Instant since) {
+    return since != null ? query + " after:" + since.getEpochSecond() : query;
   }
 
   private String findHeader(GmailMessagePayload payload, String name) {

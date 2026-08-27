@@ -69,11 +69,22 @@ class GmailPollingJob {
       connectionRepository.save(connection);
     }
 
-    List<GmailMessage> messages =
-        gmailMessagePort.findMatchingMessagesSince(connection.accessToken(), connection.lastSyncedAt(), trustedSenderDomains);
     String userId = connection.userId().value().toString();
-    for (GmailMessage message : messages) {
+
+    List<GmailMessage> trustedMessages =
+        gmailMessagePort.findMatchingMessagesSince(connection.accessToken(), connection.lastSyncedAt(), trustedSenderDomains);
+    for (GmailMessage message : trustedMessages) {
       ingestMessage(userId, message);
+    }
+
+    // Búsqueda separada (excluye a nivel de query los dominios ya confiables, ver
+    // GoogleGmailApiAdapter.buildCandidateQuery) para descubrir remitentes nuevos que la
+    // búsqueda de arriba nunca trae -- están restringidos a from:<dominio confiable>, así
+    // que un remitente nuevo ni siquiera se consulta ahí.
+    List<GmailMessage> candidateMessages =
+        gmailMessagePort.findCandidateMessagesSince(connection.accessToken(), connection.lastSyncedAt(), trustedSenderDomains);
+    for (GmailMessage message : candidateMessages) {
+      handleCandidateMessage(userId, message);
     }
 
     connection.recordSync(now);
@@ -84,7 +95,7 @@ class GmailPollingJob {
     // Defensa en profundidad: el "from:" de Gmail ya filtró por dominio en la búsqueda,
     // pero re-validar acá con la misma política que usa el webhook de SendGrid evita
     // confiar dos veces en la misma lógica implementada en dos lugares distintos.
-    if (!ingestionPort.isTrustedSender(message.from())) {
+    if (!ingestionPort.isTrustedSender(userId, message.from())) {
       log.info("Correo de Gmail descartado, remitente no confiable pese al filtro de búsqueda: {}", message.from());
       return;
     }
@@ -92,6 +103,21 @@ class GmailPollingJob {
       ingestionPort.ingest(userId, message.rawText());
     } catch (Exception e) {
       log.warn("Fallo ingiriendo un correo de Gmail para el usuario {}: {}", userId, e.getMessage(), e);
+    }
+  }
+
+  private void handleCandidateMessage(String userId, GmailMessage message) {
+    // Re-chequea contra la política de confianza (no solo contra el allowlist global que ya
+    // excluyó la query): si este usuario en particular ya aprobó el dominio, el mensaje se
+    // ingesta directo en vez de volver a quedar pendiente en cada poll.
+    if (ingestionPort.isTrustedSender(userId, message.from())) {
+      ingestMessage(userId, message);
+      return;
+    }
+    try {
+      ingestionPort.recordPendingSender(userId, message.from(), message.rawText());
+    } catch (Exception e) {
+      log.warn("Fallo registrando remitente pendiente de Gmail para el usuario {}: {}", userId, e.getMessage(), e);
     }
   }
 }
