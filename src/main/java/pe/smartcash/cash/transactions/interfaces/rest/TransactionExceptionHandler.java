@@ -9,6 +9,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pe.smartcash.cash.shared.interfaces.rest.ApiError;
+import pe.smartcash.cash.transactions.domain.exception.PendingSenderNotFoundException;
+import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 
 /**
@@ -24,6 +26,18 @@ class TransactionExceptionHandler {
 
   @ExceptionHandler(UserNotFoundException.class)
   ResponseEntity<ApiError> handleUserNotFound(UserNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(TransactionNotFoundException.class)
+  ResponseEntity<ApiError> handleTransactionNotFound(TransactionNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(PendingSenderNotFoundException.class)
+  ResponseEntity<ApiError> handlePendingSenderNotFound(PendingSenderNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
   }
