@@ -1,0 +1,123 @@
+package pe.smartcash.cash.gmailsync.infrastructure.gmail;
+
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+import pe.smartcash.cash.gmailsync.domain.services.GmailMessage;
+import pe.smartcash.cash.gmailsync.domain.services.GmailMessagePort;
+
+/**
+ * Se usa {@code format=full} (JSON con el body en base64url) en vez de {@code format=raw}
+ * (RFC822 crudo) a propósito: parsear MIME multipart a mano sería reinventar una librería
+ * entera. El JSON de Gmail ya trae el árbol de {@code parts} resuelto, solo hay que
+ * recorrerlo buscando la primera parte {@code text/plain} (o {@code text/html} como
+ * fallback, con un strip de tags simple) -- mismo criterio "sin dependencia nueva si se
+ * puede evitar" que el adaptador del LLM.
+ */
+@Component
+class GoogleGmailApiAdapter implements GmailMessagePort {
+
+  private static final String BASE_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
+
+  private final RestClient.Builder restClientBuilder;
+
+  GoogleGmailApiAdapter(RestClient.Builder restClientBuilder) {
+    this.restClientBuilder = restClientBuilder;
+  }
+
+  @Override
+  public List<GmailMessage> findMatchingMessagesSince(String accessToken, Instant since, Set<String> senderDomains) {
+    RestClient restClient = restClientBuilder.build();
+    String query = buildQuery(since, senderDomains);
+
+    GmailMessageListResponse listResponse =
+        restClient
+            .get()
+            .uri(BASE_URL + "/messages?q={q}", query)
+            .header("Authorization", "Bearer " + accessToken)
+            .retrieve()
+            .body(GmailMessageListResponse.class);
+
+    if (listResponse == null || listResponse.messages() == null) {
+      return List.of();
+    }
+
+    return listResponse.messages().stream()
+        .map(ref -> fetchMessage(restClient, accessToken, ref.id()))
+        .filter(Objects::nonNull)
+        .toList();
+  }
+
+  private GmailMessage fetchMessage(RestClient restClient, String accessToken, String messageId) {
+    GmailFullMessage full =
+        restClient
+            .get()
+            .uri(BASE_URL + "/messages/{id}?format=full", messageId)
+            .header("Authorization", "Bearer " + accessToken)
+            .retrieve()
+            .body(GmailFullMessage.class);
+
+    if (full == null || full.payload() == null) {
+      return null;
+    }
+    String from = findHeader(full.payload(), "From");
+    String text = extractText(full.payload());
+    if (from == null || text == null || text.isBlank()) {
+      return null;
+    }
+    return new GmailMessage(from, text);
+  }
+
+  private String buildQuery(Instant since, Set<String> senderDomains) {
+    String fromClause = senderDomains.stream().map(domain -> "from:" + domain).collect(Collectors.joining(" OR ", "(", ")"));
+    return since != null ? fromClause + " after:" + since.getEpochSecond() : fromClause;
+  }
+
+  private String findHeader(GmailMessagePayload payload, String name) {
+    if (payload.headers() == null) {
+      return null;
+    }
+    return payload.headers().stream().filter(h -> name.equalsIgnoreCase(h.name())).map(GmailHeader::value).findFirst().orElse(null);
+  }
+
+  private String extractText(GmailMessagePayload payload) {
+    String plain = findPart(payload, "text/plain");
+    if (plain != null) {
+      return plain;
+    }
+    String html = findPart(payload, "text/html");
+    return html != null ? stripHtml(html) : null;
+  }
+
+  private String findPart(GmailMessagePayload payload, String mimeTypePrefix) {
+    if (payload.mimeType() != null
+        && payload.mimeType().startsWith(mimeTypePrefix)
+        && payload.body() != null
+        && payload.body().data() != null) {
+      return decodeBase64Url(payload.body().data());
+    }
+    if (payload.parts() != null) {
+      for (GmailMessagePayload part : payload.parts()) {
+        String found = findPart(part, mimeTypePrefix);
+        if (found != null) {
+          return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  private String decodeBase64Url(String data) {
+    return new String(Base64.getUrlDecoder().decode(data), StandardCharsets.UTF_8);
+  }
+
+  private String stripHtml(String html) {
+    return html.replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " ").trim();
+  }
+}
