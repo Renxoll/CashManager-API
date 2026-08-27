@@ -5,6 +5,7 @@ import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import pe.smartcash.cash.transactions.domain.model.aggregates.UserTrustedSenderRepository;
 import pe.smartcash.cash.transactions.domain.policy.AllowlistedBankSenderPolicy;
 import pe.smartcash.cash.transactions.domain.policy.CategorizedExpenseNotificationPolicy;
 import pe.smartcash.cash.transactions.domain.policy.DefaultCategorizedExpenseNotificationPolicy;
@@ -34,8 +35,9 @@ class TransactionDomainConfig {
 
   @Bean
   TrustedBankSenderPolicy trustedBankSenderPolicy(
-      @Value("#{'${app.inbound-email.trusted-sender-domains}'.split(',')}") Set<String> trustedDomains) {
-    return new AllowlistedBankSenderPolicy(trustedDomains);
+      @Value("#{'${app.inbound-email.trusted-sender-domains}'.split(',')}") Set<String> trustedDomains,
+      UserTrustedSenderRepository userTrustedSenderRepository) {
+    return new AllowlistedBankSenderPolicy(trustedDomains, userTrustedSenderRepository);
   }
 
   @Bean

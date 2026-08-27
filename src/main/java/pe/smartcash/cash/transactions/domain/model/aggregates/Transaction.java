@@ -16,9 +16,11 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 
 /**
  * Aggregate root del bounded context Transactions. El único punto de entrada para mutar su
- * estado son los métodos de comportamiento ({@link #categorize} / {@link #failExtraction}):
- * no hay setters, así que es imposible construir una transacción PROCESSED sin monto, o
- * volver a categorizar una que ya se resolvió.
+ * estado son los métodos de comportamiento ({@link #categorize} / {@link #failExtraction} /
+ * {@link #recategorize}): no hay setters, así que es imposible construir una transacción
+ * PROCESSED sin monto. {@link #recategorize} es la única excepción deliberada a "una
+ * transacción resuelta no cambia" — permite que el usuario corrija la categoría que asignó
+ * el LLM, sin tocar monto/comercio/estado.
  */
 public final class Transaction {
 
@@ -118,6 +120,18 @@ public final class Transaction {
     this.errorMessage = null;
     this.status = TransactionStatus.PROCESSED;
     this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, categoryCode, processedAt));
+  }
+
+  /**
+   * Corrección manual de categoría por el usuario, después de que el LLM ya categorizó. Solo
+   * toca {@code categoryCode} -- monto, comercio y estado quedan intactos. No emite evento de
+   * dominio: hoy no hay ningún listener que necesite reaccionar a una recategorización (el
+   * resumen mensual en el contexto analytics lee la tabla vía join en cada request, así que
+   * se refleja solo).
+   */
+  public void recategorize(CategoryCode newCategoryCode) {
+    requireStatus(TransactionStatus.PROCESSED, "recategorizar");
+    this.categoryCode = Objects.requireNonNull(newCategoryCode, "newCategoryCode");
   }
 
   private void requireStatus(TransactionStatus expected, String action) {

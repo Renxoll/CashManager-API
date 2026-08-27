@@ -14,4 +14,13 @@ public interface GmailMessagePort {
    * implementación.
    */
   List<GmailMessage> findMatchingMessagesSince(String accessToken, Instant since, Set<String> senderDomains);
+
+  /**
+   * Busca correos que PODRÍAN ser notificaciones de banco/billetera pero NO vienen de un
+   * dominio ya confiable ({@code excludeDomains}) -- candidatos a remitente pendiente (ver
+   * {@code PendingSender}). Es un heurístico por palabras clave transaccionales, no una
+   * garantía: puede traer falsos positivos, pero eso es aceptable porque el resultado nunca
+   * se ingesta directo, solo se encola para que el usuario decida.
+   */
+  List<GmailMessage> findCandidateMessagesSince(String accessToken, Instant since, Set<String> excludeDomains);
 }

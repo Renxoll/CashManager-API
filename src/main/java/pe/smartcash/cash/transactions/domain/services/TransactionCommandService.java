@@ -4,6 +4,7 @@ import java.util.Optional;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 
 /**
@@ -25,4 +26,12 @@ public interface TransactionCommandService {
   Optional<TransactionId> handle(IngestEmailedTransactionCommand command);
 
   RetryFailedTransactionsResult handle(RetryFailedTransactionsCommand command);
+
+  /**
+   * Corrección manual de categoría. A diferencia de {@link #handle(IngestEmailedTransactionCommand)},
+   * acá SÍ es un error reportable: si el id no existe o no pertenece a {@code
+   * requestingUserId}, lanza {@code TransactionNotFoundException} (mismo 404 en ambos casos,
+   * no se distingue "no existe" de "no es tuya").
+   */
+  void handle(UpdateTransactionCategoryCommand command);
 }

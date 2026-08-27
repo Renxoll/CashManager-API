@@ -83,9 +83,10 @@ class TransactionWebhookControllerIT {
 
     validUserId = UUID.randomUUID();
     jdbcTemplate.update(
-        "INSERT INTO user_profiles (id, display_name, created_at, updated_at) VALUES (?, ?, now(), now())",
+        "INSERT INTO user_profiles (id, display_name, inbox_address, created_at, updated_at) VALUES (?, ?, ?, now(), now())",
         validUserId,
-        "Usuario de Test");
+        "Usuario de Test",
+        "alias-" + validUserId + "@inbox.smartcash.pe");
 
     when(tokenService.validate(BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(validUserId)));
     // Cache miss por defecto: fuerza a que la extracción siempre pase por el LLM mockeado,

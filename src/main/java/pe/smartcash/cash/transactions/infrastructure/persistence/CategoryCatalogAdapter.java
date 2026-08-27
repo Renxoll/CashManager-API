@@ -1,5 +1,6 @@
 package pe.smartcash.cash.transactions.infrastructure.persistence;
 
+import java.util.List;
 import org.springframework.stereotype.Component;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.services.CategoryCatalog;
@@ -21,6 +22,15 @@ class CategoryCatalogAdapter implements CategoryCatalog {
         categoryJpaRepository
             .findByCode(code.name())
             .orElseThrow(() -> new IllegalStateException("Categoría no encontrada en catálogo: " + code));
-    return new CategoryDescriptor(entity.getId(), code, entity.getDisplayName(), entity.getIcon());
+    return toDescriptor(entity);
+  }
+
+  @Override
+  public List<CategoryDescriptor> describeAll() {
+    return categoryJpaRepository.findAllByOrderById().stream().map(this::toDescriptor).toList();
+  }
+
+  private CategoryDescriptor toDescriptor(CategoryJpaEntity entity) {
+    return new CategoryDescriptor(entity.getId(), CategoryCode.fromCode(entity.getCode()), entity.getDisplayName(), entity.getIcon());
   }
 }

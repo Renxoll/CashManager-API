@@ -2,11 +2,15 @@ package pe.smartcash.cash.transactions.infrastructure.persistence;
 
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
+import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionPage;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.transactions.infrastructure.persistence.jpa.repositories.CategoryJpaRepository;
 import pe.smartcash.cash.transactions.infrastructure.persistence.jpa.repositories.TransactionJpaRepository;
 
@@ -40,5 +44,13 @@ class TransactionRepositoryAdapter implements TransactionRepository {
   @Override
   public List<Transaction> findAllByStatus(TransactionStatus status) {
     return jpaRepository.findAllByStatus(status).stream().map(TransactionEntityMapper::toDomain).toList();
+  }
+
+  @Override
+  public TransactionPage findAllByUserId(UserId userId, int page, int size) {
+    var pageResult =
+        jpaRepository.findAllByUserId(userId.value(), PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
+    List<Transaction> items = pageResult.getContent().stream().map(TransactionEntityMapper::toDomain).toList();
+    return new TransactionPage(items, pageResult.getTotalElements());
   }
 }

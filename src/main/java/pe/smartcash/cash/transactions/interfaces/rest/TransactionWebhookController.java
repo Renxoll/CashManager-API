@@ -2,11 +2,8 @@ package pe.smartcash.cash.transactions.interfaces.rest;
 
 import jakarta.validation.Valid;
 import java.net.URI;
-import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,8 +36,9 @@ class TransactionWebhookController {
    * {@code handle()} solo persiste PENDING y publica {@code TransactionReceived}: la
    * categorización real (llamada al LLM) corre en un worker async aparte (ver {@code
    * TransactionCommandServiceImpl}), así que este endpoint nunca espera al LLM y siempre
-   * responde 202. El cliente hace poll de {@link #getById} (URL en {@code Location}) hasta
-   * ver el estado PROCESSED o FAILED.
+   * responde 202. El cliente hace poll de {@code GET /api/v1/transactions/{id}} (URL en
+   * {@code Location}, ahora en {@code TransactionController}) hasta ver el estado PROCESSED
+   * o FAILED.
    */
   @PostMapping("/webhook")
   ResponseEntity<TransactionResource> receiveWebhook(@Valid @RequestBody CreateTransactionResource resource) {
@@ -61,14 +59,5 @@ class TransactionWebhookController {
     return ResponseEntity.status(HttpStatus.ACCEPTED)
         .location(location)
         .body(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
-  }
-
-  @GetMapping("/{transactionId}")
-  ResponseEntity<TransactionResource> getById(@PathVariable UUID transactionId) {
-    return transactionQueryService
-        .handle(new FindTransactionByIdQuery(TransactionId.of(transactionId)))
-        .map(TransactionResourceFromEntityAssembler::toResourceFromEntity)
-        .map(ResponseEntity::ok)
-        .orElseGet(() -> ResponseEntity.notFound().build());
   }
 }
