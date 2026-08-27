@@ -10,5 +10,11 @@ public interface BankNotificationIngestionPort {
 
   void ingest(String userId, String rawText);
 
-  boolean isTrustedSender(String fromAddress);
+  boolean isTrustedSender(String userId, String fromAddress);
+
+  /**
+   * Remitente no confiable (ni global ni aprobado por este usuario): en vez de descartar el
+   * correo en silencio, lo deja en la cola de aprobación del usuario en Transactions.
+   */
+  void recordPendingSender(String userId, String fromAddress, String rawText);
 }
