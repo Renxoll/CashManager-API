@@ -9,12 +9,14 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
+import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionCategorized;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionReceived;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
@@ -30,6 +32,7 @@ import pe.smartcash.cash.transactions.domain.service.BankNotificationHeuristicPa
 import pe.smartcash.cash.transactions.domain.service.ParsedHint;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import pe.smartcash.cash.transactions.domain.services.MerchantCategoryCache;
+import pe.smartcash.cash.transactions.domain.services.PendingSenderCommandService;
 import pe.smartcash.cash.transactions.domain.services.RetryFailedTransactionsResult;
 import pe.smartcash.cash.transactions.domain.services.TransactionCommandService;
 import pe.smartcash.cash.transactions.domain.services.TransactionExtractionService;
@@ -57,6 +60,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
   private final UserDirectory userDirectory;
   private final CategorizedExpenseNotificationPolicy notificationPolicy;
   private final TrustedBankSenderPolicy trustedBankSenderPolicy;
+  private final PendingSenderCommandService pendingSenderCommandService;
   private final ApplicationEventPublisher eventPublisher;
   private final Clock clock;
 
@@ -68,6 +72,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
       UserDirectory userDirectory,
       CategorizedExpenseNotificationPolicy notificationPolicy,
       TrustedBankSenderPolicy trustedBankSenderPolicy,
+      PendingSenderCommandService pendingSenderCommandService,
       ApplicationEventPublisher eventPublisher,
       Clock clock) {
     this.transactionRepository = transactionRepository;
@@ -77,6 +82,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     this.userDirectory = userDirectory;
     this.notificationPolicy = notificationPolicy;
     this.trustedBankSenderPolicy = trustedBankSenderPolicy;
+    this.pendingSenderCommandService = pendingSenderCommandService;
     this.eventPublisher = eventPublisher;
     this.clock = clock;
   }
@@ -93,22 +99,28 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
 
   /**
    * A diferencia del webhook JSON (donde un userId inexistente o inválido es un error del
-   * caller que vale la pena reportar con 404), acá un correo sin remitente confiable o sin
-   * buzón reconocido no es un error del sistema — es spam, un reenvío mal configurado, o
-   * simplemente ruido — así que se descarta en silencio (log) en vez de lanzar: nadie del
-   * otro lado de SendGrid puede "corregir" el request, y el endpoint igual responde 200.
+   * caller que vale la pena reportar con 404), acá un buzón sin dueño no es un error del
+   * sistema — es un reenvío mal dirigido, y nadie del otro lado de SendGrid puede "corregir"
+   * el request — así que se descarta en silencio (log) en vez de lanzar; el endpoint igual
+   * responde 200.
+   *
+   * <p>El buzón se resuelve ANTES de chequear el remitente (al revés que antes): un remitente
+   * no confiable ya no se descarta en silencio, queda en la cola de aprobación del usuario
+   * ({@link PendingSenderCommandService#recordSighting}) -- y para saber de qué usuario es esa
+   * cola hace falta el userId, que solo se obtiene resolviendo el buzón primero.
    */
   @Override
   @Transactional
   public Optional<TransactionId> handle(IngestEmailedTransactionCommand command) {
-    if (!trustedBankSenderPolicy.isSatisfiedBy(command.fromAddress())) {
-      log.info("Correo entrante descartado, remitente no confiable: {}", command.fromAddress());
-      return Optional.empty();
-    }
-
     Optional<UserId> userId = userDirectory.findUserIdByInboxAddress(command.inboxAddress());
     if (userId.isEmpty()) {
       log.info("Correo entrante descartado, buzón sin dueño: {}", command.inboxAddress());
+      return Optional.empty();
+    }
+
+    if (!trustedBankSenderPolicy.isSatisfiedBy(userId.get(), command.fromAddress())) {
+      pendingSenderCommandService.recordSighting(userId.get(), command.fromAddress(), command.rawText());
+      log.info("Correo entrante puesto en cola de aprobación, remitente no confiable: {}", command.fromAddress());
       return Optional.empty();
     }
 
@@ -203,6 +215,18 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     }
 
     return new RetryFailedTransactionsResult(retried, stillFailed);
+  }
+
+  @Override
+  @Transactional
+  public void handle(UpdateTransactionCategoryCommand command) {
+    Transaction transaction =
+        transactionRepository
+            .findById(command.transactionId())
+            .filter(t -> t.userId().equals(command.requestingUserId()))
+            .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
+    transaction.recategorize(command.newCategoryCode());
+    transactionRepository.save(transaction);
   }
 
   private Extraction resolveExtraction(String rawText) {
