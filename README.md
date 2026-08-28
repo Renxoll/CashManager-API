@@ -411,9 +411,12 @@ verdad (`NoOpTransactionNotifierAdapter`).
 
 | Variable | Default | Uso |
 |---|---|---|
-| `LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint del proveedor LLM. |
-| `LLM_API_KEY` | *(vacío)* | API key del proveedor. |
-| `LLM_MODEL` | `gpt-4o-mini` | Modelo a usar. |
+| `LLM_BASE_URL` | `https://api.openai.com/v1` | Endpoint del proveedor LLM primario (extracción de transacciones + asesor). |
+| `LLM_API_KEY` | *(vacío)* | API key del proveedor primario. |
+| `LLM_MODEL` | `gpt-4o-mini` | Modelo a usar del proveedor primario. |
+| `XAI_BASE_URL` | `https://api.x.ai/v1` | Endpoint de xAI Grok, proveedor de respaldo del asesor (ver `FallbackAdvisorChatClient`). Solo se usa si el proveedor primario falla. |
+| `XAI_API_KEY` | *(vacío)* | API key de xAI. |
+| `XAI_MODEL` | `grok-4.6` | Modelo de respaldo a usar. |
 | `FCM_ENABLED` | `false` | `true` activa la integración real con Firebase. |
 | `FCM_CREDENTIALS_PATH` | `/secrets/firebase-service-account.json` | Service account JSON de Firebase. |
 | `IAM_TOKEN_SECRET` | placeholder de dev, **cambiar en cualquier despliegue real** | Secreto HMAC que firma los access tokens. |

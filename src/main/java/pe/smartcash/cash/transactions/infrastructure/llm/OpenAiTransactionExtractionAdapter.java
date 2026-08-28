@@ -3,6 +3,7 @@ package pe.smartcash.cash.transactions.infrastructure.llm;
 import io.sentry.Sentry;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -50,7 +51,8 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
   private final ObjectMapper objectMapper;
   private final JsonNode responseSchema;
 
-  OpenAiTransactionExtractionAdapter(RestClient llmRestClient, LlmProperties properties, ObjectMapper objectMapper) {
+  OpenAiTransactionExtractionAdapter(
+      @Qualifier("llmRestClient") RestClient llmRestClient, LlmProperties properties, ObjectMapper objectMapper) {
     this.llmRestClient = llmRestClient;
     this.properties = properties;
     this.objectMapper = objectMapper;
