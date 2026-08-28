@@ -36,12 +36,11 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
           "moneda": {"type": "string", "pattern": "^[A-Z]{3}$"},
           "comercio": {"type": "string"},
           "categoria": {
-            "type": ["string", "null"],
-            "enum": ["COMIDA","TRANSPORTE","ENTRETENIMIENTO","SALUD","COMPRAS","SERVICIOS","EDUCACION","OTROS", null]
-          },
-          "tipo": {"type": "string", "enum": ["GASTO","INGRESO"]}
+            "type": "string",
+            "enum": ["COMIDA","TRANSPORTE","ENTRETENIMIENTO","SALUD","COMPRAS","SERVICIOS","EDUCACION","OTROS"]
+          }
         },
-        "required": ["monto","moneda","comercio","categoria","tipo"],
+        "required": ["monto","moneda","comercio","categoria"],
         "additionalProperties": false
       }
       """;
@@ -107,9 +106,13 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
 
     String content = response.choices().get(0).message().content();
     ExtractedTransactionPayload payload = objectMapper.readValue(content, ExtractedTransactionPayload.class);
-    CategoryCode categoryCode = payload.categoria() != null ? CategoryCode.fromCode(payload.categoria()) : null;
+    // Siempre EXPENSE acá a propósito: se probó pedirle al LLM que distinga depósito vs.
+    // gasto (campo "tipo"), pero en la práctica al usuario casi nunca le llegan
+    // notificaciones de correo de sus propios depósitos -- solo de sus gastos -- así que
+    // intentar detectar ingresos desde el correo era ruido, no señal. Los ingresos ahora se
+    // registran a mano (ver TransactionCommandServiceImpl.handle(RecordManualIncomeCommand)).
     return new ExtractionResult(
-        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), categoryCode, TransactionType.fromCode(payload.tipo()));
+        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), CategoryCode.fromCode(payload.categoria()), TransactionType.EXPENSE);
   }
 
   private static JsonNode parseSchema(ObjectMapper objectMapper) {

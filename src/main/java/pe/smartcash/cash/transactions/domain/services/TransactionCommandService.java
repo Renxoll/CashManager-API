@@ -3,6 +3,7 @@ package pe.smartcash.cash.transactions.domain.services;
 import java.util.Optional;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
@@ -34,4 +35,8 @@ public interface TransactionCommandService {
    * no se distingue "no existe" de "no es tuya").
    */
   void handle(UpdateTransactionCategoryCommand command);
+
+  /** Registro manual de un ingreso -- siempre PROCESSED de una, nunca falla por LLM porque
+   * no hay extracción de por medio. */
+  TransactionId handle(RecordManualIncomeCommand command);
 }
