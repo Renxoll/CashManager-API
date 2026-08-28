@@ -17,4 +17,12 @@ public record UserId(UUID value) {
   public static UserId of(UUID value) {
     return new UserId(value);
   }
+
+  public static UserId parse(String raw) {
+    try {
+      return new UserId(UUID.fromString(raw));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("userId inválido: " + raw, e);
+    }
+  }
 }

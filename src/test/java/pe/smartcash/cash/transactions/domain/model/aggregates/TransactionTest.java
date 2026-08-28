@@ -13,6 +13,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 
 class TransactionTest {
@@ -64,9 +65,37 @@ class TransactionTest {
     assertThatThrownBy(() -> transaction.recategorize(null)).isInstanceOf(NullPointerException.class);
   }
 
+  @Test
+  void shouldForceCategoryCodeToNullForIncome() {
+    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "Se abonó S/1500.00 a tu cuenta", Instant.now());
+
+    // Le paso una categoría igual a propósito -- el agregado debe ignorarla, no confiar en
+    // que el caller nunca la mande para un ingreso.
+    transaction.categorize(
+        new Money(new BigDecimal("1500.00"), "PEN"),
+        new Merchant("Juan Pérez"),
+        CategoryCode.COMPRAS,
+        ExtractionSource.LLM,
+        Instant.now(),
+        TransactionType.INCOME);
+
+    assertThat(transaction.categoryCode()).isNull();
+    assertThat(transaction.type()).isEqualTo(TransactionType.INCOME);
+  }
+
+  @Test
+  void shouldRejectRecategorizingAnIncomeTransaction() {
+    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "Se abonó S/1500.00 a tu cuenta", Instant.now());
+    transaction.categorize(
+        new Money(new BigDecimal("1500.00"), "PEN"), new Merchant("Juan Pérez"), null, ExtractionSource.LLM, Instant.now(), TransactionType.INCOME);
+
+    assertThatThrownBy(() -> transaction.recategorize(CategoryCode.COMIDA)).isInstanceOf(IllegalStateException.class);
+  }
+
   private Transaction processedTransaction(CategoryCode categoryCode) {
     Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "S/24.50 en Starbucks", Instant.now());
-    transaction.categorize(new Money(new BigDecimal("24.50"), "PEN"), new Merchant("Starbucks"), categoryCode, ExtractionSource.LLM, Instant.now());
+    transaction.categorize(
+        new Money(new BigDecimal("24.50"), "PEN"), new Merchant("Starbucks"), categoryCode, ExtractionSource.LLM, Instant.now(), TransactionType.EXPENSE);
     return transaction;
   }
 }
