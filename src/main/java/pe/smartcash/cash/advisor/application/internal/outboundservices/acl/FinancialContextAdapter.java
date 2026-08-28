@@ -30,7 +30,7 @@ class FinancialContextAdapter implements FinancialContextProvider {
   @Override
   public FinancialContext currentMonthContext(UUID userId) {
     MonthlySummary summary = dashboardQueryService.handle(new FindMonthlySummaryQuery(userId));
-    return new FinancialContext(summary.totalSpent(), summary.previousMonthTotal(), toShares(summary.breakdown()));
+    return new FinancialContext(summary.totalSpent(), summary.previousMonthTotal(), summary.totalIncome(), toShares(summary.breakdown()));
   }
 
   private List<CategoryShare> toShares(List<CategoryBreakdownEntry> breakdown) {
