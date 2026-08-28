@@ -15,6 +15,7 @@ import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionCategorized;
@@ -232,6 +233,20 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
             .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
     transaction.recategorize(command.newCategoryCode());
     transactionRepository.save(transaction);
+  }
+
+  @Override
+  @Transactional
+  public TransactionId handle(RecordManualIncomeCommand command) {
+    Money money = new Money(command.amount(), command.currency());
+    Merchant source = new Merchant(command.source());
+    // rawText es NOT NULL en la tabla y conceptualmente documenta "de dónde salió el dato"
+    // -- para un ingreso a mano no hay notificación real que citar, así que se sintetiza una
+    // descripción equivalente en vez de forzar al caller a inventar un texto.
+    String rawText = "Ingreso registrado manualmente: %s".formatted(command.source());
+    Transaction transaction = Transaction.recordManualIncome(TransactionId.newId(), command.userId(), rawText, money, source, clock.instant());
+    transactionRepository.save(transaction);
+    return transaction.id();
   }
 
   private Extraction resolveExtraction(String rawText) {

@@ -3,16 +3,19 @@ package pe.smartcash.cash.transactions.interfaces.rest;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionByIdQuery;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionsByUserQuery;
@@ -23,6 +26,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionCommandService;
 import pe.smartcash.cash.transactions.domain.services.TransactionDetail;
 import pe.smartcash.cash.transactions.domain.services.TransactionQueryService;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.CategoryResource;
+import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualIncomeResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionPageResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.UpdateTransactionCategoryResource;
@@ -91,6 +95,17 @@ class TransactionController {
     transactionCommandService.handle(new UpdateTransactionCategoryCommand(id, userId, categoryCode));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
+  }
+
+  @PostMapping("/income")
+  ResponseEntity<TransactionResource> recordManualIncome(
+      @AuthenticationPrincipal String authenticatedUserId, @Valid @RequestBody RecordManualIncomeResource resource) {
+    UserId userId = UserId.parse(authenticatedUserId);
+    TransactionId id =
+        transactionCommandService.handle(
+            new RecordManualIncomeCommand(userId, resource.amount(), resource.currency().trim().toUpperCase(), resource.source().trim()));
+    TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
+    return ResponseEntity.status(HttpStatus.CREATED).body(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
   }
 
   private TransactionDetail requireOwnedTransaction(TransactionId transactionId, String authenticatedUserId) {
