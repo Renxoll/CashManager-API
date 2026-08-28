@@ -34,14 +34,20 @@ public class TransactionReadRepository {
     this.jdbcClient = jdbcClient;
   }
 
-  /** {@code COALESCE} a cero: sin transacciones en el rango, SUM natural de SQL da NULL. */
-  public BigDecimal sumProcessedAmount(UUID userId, Instant from, Instant to) {
+  /**
+   * {@code COALESCE} a cero: sin transacciones en el rango, SUM natural de SQL da NULL.
+   * {@code type} es {@code "EXPENSE"} o {@code "INCOME"} (mismo criterio que {@code status}
+   * arriba: este read model no importa el enum del contexto transactions, solo pasa el valor
+   * como string -- no hay agregado que proteger acá, ver javadoc de la clase).
+   */
+  public BigDecimal sumProcessedAmount(UUID userId, Instant from, Instant to, String type) {
     return jdbcClient
         .sql(
             """
             SELECT COALESCE(SUM(amount), 0)
             FROM transactions
             WHERE status = 'PROCESSED'
+              AND type = :type
               AND user_id = :userId
               AND created_at >= :from
               AND created_at < :to
@@ -49,6 +55,7 @@ public class TransactionReadRepository {
         .param("userId", userId)
         .param("from", toOffsetDateTime(from))
         .param("to", toOffsetDateTime(to))
+        .param("type", type)
         .query(BigDecimal.class)
         .single();
   }
@@ -70,6 +77,7 @@ public class TransactionReadRepository {
             FROM transactions t
             JOIN categories c ON c.id = t.category_id
             WHERE t.status = 'PROCESSED'
+              AND t.type = 'EXPENSE'
               AND t.user_id = :userId
               AND t.created_at >= :from
               AND t.created_at < :to
