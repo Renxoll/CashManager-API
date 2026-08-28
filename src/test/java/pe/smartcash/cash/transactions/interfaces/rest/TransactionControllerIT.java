@@ -170,4 +170,29 @@ class TransactionControllerIT {
         .perform(get("/api/v1/transactions/{id}", transactionId).header("Authorization", "Bearer " + BEARER_TOKEN))
         .andExpect(status().isNotFound());
   }
+
+  @Test
+  void shouldReturnIncomeTransactionWithoutCategory() throws Exception {
+    UUID transactionId = seedProcessedIncomeTransaction(ownerUserId);
+
+    mockMvc
+        .perform(get("/api/v1/transactions/{id}", transactionId).header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.type").value("INCOME"))
+        .andExpect(jsonPath("$.categoryCode").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  private UUID seedProcessedIncomeTransaction(UUID userId) {
+    UUID transactionId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, NULL, ?, ?, ?, ?, 'PROCESSED', 'LLM', 'INCOME', now(), now())",
+        transactionId,
+        userId,
+        "Se abonó S/1500.00 a tu cuenta",
+        new BigDecimal("1500.00"),
+        "PEN",
+        "Juan Pérez");
+    return transactionId;
+  }
 }
