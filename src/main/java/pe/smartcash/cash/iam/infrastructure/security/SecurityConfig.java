@@ -47,6 +47,11 @@ class SecurityConfig {
                         // SendGridInboundWebhookController es la autenticación real acá,
                         // igual que la firma HMAC lo es para el webhook de Stripe arriba.
                         "/api/v1/transactions/inbound",
+                        // Google redirige el navegador acá directo tras el consentimiento:
+                        // no puede mandar un header Authorization en una navegación normal,
+                        // así que el userId viaja indirecto vía "state" (ver
+                        // GmailOAuthController / OAuthStateStore), no por Bearer token.
+                        "/api/v1/gmail/oauth/callback",
                         "/api/v1/system/ping",
                         "/actuator/health",
                         "/swagger-ui/**",

@@ -36,11 +36,13 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
     Instant currentMonthStart = startOf(currentMonth);
     Instant nextMonthStart = startOf(currentMonth.plusMonths(1));
 
-    var totalSpent = transactionReadRepository.sumProcessedAmount(query.userId(), currentMonthStart, nextMonthStart);
-    var previousMonthTotal = transactionReadRepository.sumProcessedAmount(query.userId(), previousMonthStart, currentMonthStart);
+    var totalSpent = transactionReadRepository.sumProcessedAmount(query.userId(), currentMonthStart, nextMonthStart, "EXPENSE");
+    var previousMonthTotal =
+        transactionReadRepository.sumProcessedAmount(query.userId(), previousMonthStart, currentMonthStart, "EXPENSE");
+    var totalIncome = transactionReadRepository.sumProcessedAmount(query.userId(), currentMonthStart, nextMonthStart, "INCOME");
     var breakdown = transactionReadRepository.findCategoryBreakdown(query.userId(), currentMonthStart, nextMonthStart);
 
-    return new MonthlySummary(totalSpent, previousMonthTotal, breakdown);
+    return new MonthlySummary(totalSpent, previousMonthTotal, totalIncome, breakdown);
   }
 
   private static Instant startOf(YearMonth yearMonth) {
