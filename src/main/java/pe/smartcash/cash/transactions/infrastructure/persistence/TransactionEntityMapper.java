@@ -6,6 +6,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 
 final class TransactionEntityMapper {
@@ -29,6 +30,10 @@ final class TransactionEntityMapper {
         // Es un detalle de la tabla, no una afirmación de negocio — por eso vive acá y no
         // en el agregado.
         .extractionSource(transaction.extractionSource() != null ? transaction.extractionSource() : ExtractionSource.LLM)
+        // Mismo criterio que extractionSource: columna NOT NULL, placeholder técnico para
+        // filas todavía PENDING/FAILED sin type real. Inofensivo porque analytics siempre
+        // filtra status='PROCESSED' antes de sumar por type.
+        .type(transaction.type() != null ? transaction.type() : TransactionType.EXPENSE)
         .errorMessage(transaction.errorMessage())
         .createdAt(transaction.createdAt())
         .processedAt(transaction.processedAt())
@@ -48,6 +53,7 @@ final class TransactionEntityMapper {
         money,
         merchant,
         categoryCode,
+        entity.getType(),
         entity.getExtractionSource(),
         entity.getErrorMessage(),
         entity.getProcessedAt());

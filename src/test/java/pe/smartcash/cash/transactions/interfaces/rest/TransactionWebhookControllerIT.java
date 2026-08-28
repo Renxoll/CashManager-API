@@ -3,6 +3,8 @@ package pe.smartcash.cash.transactions.interfaces.rest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -33,6 +35,7 @@ import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFail
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import pe.smartcash.cash.transactions.domain.services.MerchantCategoryCache;
 import pe.smartcash.cash.transactions.domain.services.TransactionExtractionService;
@@ -97,7 +100,9 @@ class TransactionWebhookControllerIT {
   @Test
   void shouldProcessTransactionSuccessfully() throws Exception {
     when(extractionService.extract(anyString()))
-        .thenReturn(new ExtractionResult(new Money(new BigDecimal("24.50"), "PEN"), new Merchant("Starbucks"), CategoryCode.COMIDA));
+        .thenReturn(
+            new ExtractionResult(
+                new Money(new BigDecimal("24.50"), "PEN"), new Merchant("Starbucks"), CategoryCode.COMIDA, TransactionType.EXPENSE));
 
     mockMvc
         .perform(
@@ -141,6 +146,31 @@ class TransactionWebhookControllerIT {
     assertThat(saved.get("raw_text")).isEqualTo(rawText);
   }
 
+  @Test
+  void shouldProcessADepositNotificationAsIncomeWithoutCategory() throws Exception {
+    when(extractionService.extract(anyString()))
+        .thenReturn(new ExtractionResult(new Money(new BigDecimal("1500.00"), "PEN"), new Merchant("Juan Pérez"), null, TransactionType.INCOME));
+
+    mockMvc
+        .perform(
+            post("/api/v1/transactions/webhook")
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"userId":"%s","rawText":"Se abonó S/1500.00 a tu cuenta"}
+                    """
+                        .formatted(validUserId)))
+        .andExpect(status().isAccepted());
+
+    Map<String, Object> saved = awaitTransactionStatus(validUserId, "PROCESSED");
+    assertThat((BigDecimal) saved.get("amount")).isEqualByComparingTo("1500.00");
+    assertThat(saved.get("type")).isEqualTo("INCOME");
+    assertThat(saved.get("category_id")).isNull();
+    // El atajo de cache es comercio -> categoría de GASTO; un ingreso no debe pasar por ahí.
+    verify(merchantCategoryCache, never()).remember(any(), any());
+  }
+
   /**
    * El worker async corre en el {@code ThreadPoolTaskExecutor} de {@code AsyncConfig}, no en
    * el hilo del test: sin este poll, leer la fila inmediatamente después del POST casi
@@ -150,7 +180,8 @@ class TransactionWebhookControllerIT {
     Instant deadline = Instant.now().plusSeconds(5);
     while (Instant.now().isBefore(deadline)) {
       List<Map<String, Object>> rows =
-          jdbcTemplate.queryForList("SELECT status, amount, currency, merchant, raw_text FROM transactions WHERE user_id = ?", userId);
+          jdbcTemplate.queryForList(
+              "SELECT status, amount, currency, merchant, raw_text, type, category_id FROM transactions WHERE user_id = ?", userId);
       if (!rows.isEmpty() && expectedStatus.equals(rows.get(0).get("status"))) {
         return rows.get(0);
       }

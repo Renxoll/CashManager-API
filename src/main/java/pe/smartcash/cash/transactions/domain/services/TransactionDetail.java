@@ -5,6 +5,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 
 /** Read-model devuelto por {@link TransactionQueryService}: ya trae la categoría resuelta. */
@@ -15,5 +16,6 @@ public record TransactionDetail(
     Money money,
     Merchant merchant,
     CategoryDescriptor category,
+    TransactionType type,
     String errorMessage,
     Instant createdAt) {}

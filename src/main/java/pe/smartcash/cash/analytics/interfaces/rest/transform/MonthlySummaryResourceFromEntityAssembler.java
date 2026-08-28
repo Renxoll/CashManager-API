@@ -13,6 +13,6 @@ public final class MonthlySummaryResourceFromEntityAssembler {
         summary.breakdown().stream()
             .map(entry -> new CategoryPercentage(entry.categoryId(), entry.categoryName(), entry.amount(), entry.percentage()))
             .toList();
-    return new MonthlySummaryResponse(summary.totalSpent(), summary.previousMonthTotal(), breakdown);
+    return new MonthlySummaryResponse(summary.totalSpent(), summary.previousMonthTotal(), summary.totalIncome(), breakdown);
   }
 }

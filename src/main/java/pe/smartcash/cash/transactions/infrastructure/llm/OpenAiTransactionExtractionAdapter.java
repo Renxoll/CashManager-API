@@ -10,6 +10,7 @@ import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFail
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import pe.smartcash.cash.transactions.domain.services.TransactionExtractionService;
 import tools.jackson.core.JacksonException;
@@ -35,11 +36,12 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
           "moneda": {"type": "string", "pattern": "^[A-Z]{3}$"},
           "comercio": {"type": "string"},
           "categoria": {
-            "type": "string",
-            "enum": ["COMIDA","TRANSPORTE","ENTRETENIMIENTO","SALUD","COMPRAS","SERVICIOS","EDUCACION","OTROS"]
-          }
+            "type": ["string", "null"],
+            "enum": ["COMIDA","TRANSPORTE","ENTRETENIMIENTO","SALUD","COMPRAS","SERVICIOS","EDUCACION","OTROS", null]
+          },
+          "tipo": {"type": "string", "enum": ["GASTO","INGRESO"]}
         },
-        "required": ["monto","moneda","comercio","categoria"],
+        "required": ["monto","moneda","comercio","categoria","tipo"],
         "additionalProperties": false
       }
       """;
@@ -105,8 +107,9 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
 
     String content = response.choices().get(0).message().content();
     ExtractedTransactionPayload payload = objectMapper.readValue(content, ExtractedTransactionPayload.class);
+    CategoryCode categoryCode = payload.categoria() != null ? CategoryCode.fromCode(payload.categoria()) : null;
     return new ExtractionResult(
-        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), CategoryCode.fromCode(payload.categoria()));
+        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), categoryCode, TransactionType.fromCode(payload.tipo()));
   }
 
   private static JsonNode parseSchema(ObjectMapper objectMapper) {

@@ -23,8 +23,11 @@ public class GmailConnectionJpaEntity {
 
   @Id private UUID id;
 
-  @Column(name = "user_id", nullable = false, unique = true)
+  @Column(name = "user_id", nullable = false)
   private UUID userId;
+
+  @Column(name = "email")
+  private String email;
 
   @Column(name = "access_token", nullable = false, columnDefinition = "text")
   private String accessToken;

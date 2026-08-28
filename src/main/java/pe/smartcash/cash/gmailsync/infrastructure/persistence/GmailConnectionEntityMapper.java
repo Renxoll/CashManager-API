@@ -1,8 +1,8 @@
 package pe.smartcash.cash.gmailsync.infrastructure.persistence;
 
-import java.util.UUID;
 import org.springframework.stereotype.Component;
 import pe.smartcash.cash.gmailsync.domain.model.aggregates.GmailConnection;
+import pe.smartcash.cash.gmailsync.domain.model.valueobjects.GmailConnectionId;
 import pe.smartcash.cash.gmailsync.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.gmailsync.infrastructure.crypto.TokenCipher;
 
@@ -20,10 +20,11 @@ class GmailConnectionEntityMapper {
     this.tokenCipher = tokenCipher;
   }
 
-  GmailConnectionJpaEntity toJpaEntity(GmailConnection connection, UUID existingId) {
+  GmailConnectionJpaEntity toJpaEntity(GmailConnection connection) {
     return GmailConnectionJpaEntity.builder()
-        .id(existingId != null ? existingId : UUID.randomUUID())
+        .id(connection.id().value())
         .userId(connection.userId().value())
+        .email(connection.email())
         .accessToken(tokenCipher.encrypt(connection.accessToken()))
         .refreshToken(tokenCipher.encrypt(connection.refreshToken()))
         .accessTokenExpiresAt(connection.accessTokenExpiresAt())
@@ -35,7 +36,9 @@ class GmailConnectionEntityMapper {
 
   GmailConnection toDomain(GmailConnectionJpaEntity entity) {
     return GmailConnection.rehydrate(
+        GmailConnectionId.of(entity.getId()),
         UserId.of(entity.getUserId()),
+        entity.getEmail(),
         tokenCipher.decrypt(entity.getAccessToken()),
         tokenCipher.decrypt(entity.getRefreshToken()),
         entity.getAccessTokenExpiresAt(),

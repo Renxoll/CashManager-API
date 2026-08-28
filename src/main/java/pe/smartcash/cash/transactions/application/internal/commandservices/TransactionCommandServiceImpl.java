@@ -25,6 +25,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.transactions.domain.policy.CategorizedExpenseNotificationPolicy;
 import pe.smartcash.cash.transactions.domain.policy.TrustedBankSenderPolicy;
@@ -170,10 +171,12 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
       return;
     }
 
-    transaction.categorize(extraction.money(), extraction.merchant(), extraction.categoryCode(), extraction.source(), clock.instant());
+    transaction.categorize(extraction.money(), extraction.merchant(), extraction.categoryCode(), extraction.source(), clock.instant(), extraction.type());
     transactionRepository.save(transaction);
 
-    if (extraction.source() == ExtractionSource.LLM) {
+    // El atajo de cache es comercio -> categoría de GASTO; un ingreso no tiene categoría, así
+    // que no hay nada que recordar ahí (y evita pisar el cache con una entrada categoryCode=null).
+    if (extraction.source() == ExtractionSource.LLM && extraction.type() == TransactionType.EXPENSE) {
       merchantCategoryCache.remember(extraction.merchant(), extraction.categoryCode());
     }
 
@@ -197,9 +200,11 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
         // primera vez fue justamente porque el LLM no pudo, así que reintentar el mismo
         // camino es lo que tiene sentido de negocio acá.
         ExtractionResult result = extractionService.extract(transaction.rawText());
-        transaction.retryExtraction(result.money(), result.merchant(), result.categoryCode(), ExtractionSource.LLM, clock.instant());
+        transaction.retryExtraction(result.money(), result.merchant(), result.categoryCode(), ExtractionSource.LLM, clock.instant(), result.type());
         transactionRepository.save(transaction);
-        merchantCategoryCache.remember(result.merchant(), result.categoryCode());
+        if (result.type() == TransactionType.EXPENSE) {
+          merchantCategoryCache.remember(result.merchant(), result.categoryCode());
+        }
 
         for (Object event : transaction.pullDomainEvents()) {
           if (event instanceof TransactionCategorized categorized) {
@@ -234,25 +239,28 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     if (hint.isPresent()) {
       Optional<CategoryCode> cached = merchantCategoryCache.findCategoryFor(hint.get().merchant());
       if (cached.isPresent()) {
-        return Extraction.success(hint.get().money(), hint.get().merchant(), cached.get(), ExtractionSource.CACHE);
+        // El parser heurístico solo matchea el patrón de compra "SÍMBOLO+monto en Comercio"
+        // (nunca frases de depósito), así que cualquier hit acá es, por construcción, GASTO.
+        return Extraction.success(hint.get().money(), hint.get().merchant(), cached.get(), ExtractionSource.CACHE, TransactionType.EXPENSE);
       }
     }
     try {
       ExtractionResult result = extractionService.extract(rawText);
-      return Extraction.success(result.money(), result.merchant(), result.categoryCode(), ExtractionSource.LLM);
+      return Extraction.success(result.money(), result.merchant(), result.categoryCode(), ExtractionSource.LLM, result.type());
     } catch (TransactionExtractionFailedException e) {
       return Extraction.failure(e.getMessage());
     }
   }
 
-  private record Extraction(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, String errorMessage) {
+  private record Extraction(
+      Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, String errorMessage, TransactionType type) {
 
-    static Extraction success(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source) {
-      return new Extraction(money, merchant, categoryCode, source, null);
+    static Extraction success(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, TransactionType type) {
+      return new Extraction(money, merchant, categoryCode, source, null, type);
     }
 
     static Extraction failure(String errorMessage) {
-      return new Extraction(null, null, null, null, errorMessage);
+      return new Extraction(null, null, null, null, errorMessage, null);
     }
 
     boolean failed() {

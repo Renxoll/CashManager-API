@@ -18,6 +18,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.ExtractionSource;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 
 /**
  * Modelo de persistencia, separado del agregado de dominio. Reutiliza {@code TransactionStatus}
@@ -54,6 +55,10 @@ public class TransactionJpaEntity {
   @Enumerated(EnumType.STRING)
   @Column(nullable = false, length = 20)
   private TransactionStatus status;
+
+  @Enumerated(EnumType.STRING)
+  @Column(nullable = false, length = 10)
+  private TransactionType type;
 
   @Enumerated(EnumType.STRING)
   @Column(name = "extraction_source", length = 20)

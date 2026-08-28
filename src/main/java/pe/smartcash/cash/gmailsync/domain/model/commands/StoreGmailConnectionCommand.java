@@ -9,4 +9,4 @@ import java.time.Instant;
  * criterio que {@code transactions.IngestBankNotificationCommand}.
  */
 public record StoreGmailConnectionCommand(
-    String userId, String accessToken, String refreshToken, Instant accessTokenExpiresAt) {}
+    String userId, String email, String accessToken, String refreshToken, Instant accessTokenExpiresAt) {}

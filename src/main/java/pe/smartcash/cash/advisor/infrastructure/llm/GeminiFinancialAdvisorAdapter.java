@@ -58,7 +58,14 @@ class GeminiFinancialAdvisorAdapter implements AdvisorChatClient {
       throw reportFailure(new AdvisorUnavailableException("El proveedor de LLM devolvió una respuesta sin choices"));
     }
 
-    return response.choices().get(0).message().content();
+    String content = response.choices().get(0).message().content();
+    // Un choice presente con content vacío/en blanco no es una respuesta válida -- sin este
+    // chequeo pasaría como si lo fuera, y el frontend terminaría mostrando una burbuja de
+    // chat vacía sin ningún error visible para el usuario.
+    if (content == null || content.isBlank()) {
+      throw reportFailure(new AdvisorUnavailableException("El proveedor de LLM devolvió una respuesta vacía"));
+    }
+    return content;
   }
 
   private static AdvisorUnavailableException reportFailure(AdvisorUnavailableException ex) {

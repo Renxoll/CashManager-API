@@ -12,6 +12,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 
 /**
@@ -33,6 +34,7 @@ public final class Transaction {
   private Money money;
   private Merchant merchant;
   private CategoryCode categoryCode;
+  private TransactionType type;
   private ExtractionSource extractionSource;
   private String errorMessage;
   private Instant processedAt;
@@ -71,6 +73,7 @@ public final class Transaction {
       Money money,
       Merchant merchant,
       CategoryCode categoryCode,
+      TransactionType type,
       ExtractionSource extractionSource,
       String errorMessage,
       Instant processedAt) {
@@ -78,21 +81,28 @@ public final class Transaction {
     transaction.money = money;
     transaction.merchant = merchant;
     transaction.categoryCode = categoryCode;
+    transaction.type = type;
     transaction.extractionSource = extractionSource;
     transaction.errorMessage = errorMessage;
     transaction.processedAt = processedAt;
     return transaction;
   }
 
-  public void categorize(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, Instant processedAt) {
+  /**
+   * {@code categoryCode} se fuerza a {@code null} cuando {@code type} es INCOME, sin importar
+   * qué mande el caller -- hay un solo bucket "Ingreso" en v1 (sin subcategorías), así que un
+   * ingreso categorizado no tiene sentido de negocio, no es solo "el caller se olvidó".
+   */
+  public void categorize(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, Instant processedAt, TransactionType type) {
     requireStatus(TransactionStatus.PENDING, "categorizar");
     this.money = Objects.requireNonNull(money, "money");
     this.merchant = Objects.requireNonNull(merchant, "merchant");
-    this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
+    this.type = Objects.requireNonNull(type, "type");
+    this.categoryCode = type == TransactionType.EXPENSE ? Objects.requireNonNull(categoryCode, "categoryCode") : null;
     this.extractionSource = Objects.requireNonNull(source, "extractionSource");
     this.processedAt = Objects.requireNonNull(processedAt, "processedAt");
     this.status = TransactionStatus.PROCESSED;
-    this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, categoryCode, processedAt));
+    this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, this.categoryCode, processedAt));
   }
 
   public void failExtraction(String reason) {
@@ -110,16 +120,18 @@ public final class Transaction {
    * transacción PROCESSED no se reprocesa, y una PENDING todavía no terminó su primer
    * intento. Limpia el {@code errorMessage} del intento fallido anterior.
    */
-  public void retryExtraction(Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, Instant processedAt) {
+  public void retryExtraction(
+      Money money, Merchant merchant, CategoryCode categoryCode, ExtractionSource source, Instant processedAt, TransactionType type) {
     requireStatus(TransactionStatus.FAILED, "reprocesar");
     this.money = Objects.requireNonNull(money, "money");
     this.merchant = Objects.requireNonNull(merchant, "merchant");
-    this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
+    this.type = Objects.requireNonNull(type, "type");
+    this.categoryCode = type == TransactionType.EXPENSE ? Objects.requireNonNull(categoryCode, "categoryCode") : null;
     this.extractionSource = Objects.requireNonNull(source, "extractionSource");
     this.processedAt = Objects.requireNonNull(processedAt, "processedAt");
     this.errorMessage = null;
     this.status = TransactionStatus.PROCESSED;
-    this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, categoryCode, processedAt));
+    this.domainEvents.add(new TransactionCategorized(id, userId, money, merchant, this.categoryCode, processedAt));
   }
 
   /**
@@ -131,6 +143,9 @@ public final class Transaction {
    */
   public void recategorize(CategoryCode newCategoryCode) {
     requireStatus(TransactionStatus.PROCESSED, "recategorizar");
+    if (this.type != TransactionType.EXPENSE) {
+      throw new IllegalStateException("No se puede recategorizar una transacción de tipo " + this.type + " (solo aplica a EXPENSE)");
+    }
     this.categoryCode = Objects.requireNonNull(newCategoryCode, "newCategoryCode");
   }
 
@@ -178,6 +193,10 @@ public final class Transaction {
 
   public CategoryCode categoryCode() {
     return categoryCode;
+  }
+
+  public TransactionType type() {
+    return type;
   }
 
   public ExtractionSource extractionSource() {
