@@ -85,7 +85,9 @@ class SecurityConfig {
             "http://localhost:5173",
             "http://localhost:5174",
             "https://app.smartcash.pe",
-            "https://luki-web-application.vercel.app"));
+            "https://luki-web-application.vercel.app",
+            "https://tuluki.com",
+            "https://www.tuluki.com"));
     configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
     // Sin esto el navegador descarta la cabecera Location de las respuestas 201: por
