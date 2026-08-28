@@ -36,6 +36,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionExtractionServi
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 
 /**
  * Cubre el camino completo de Feature B por la ruta SendGrid: remitente no confiable -> queda
@@ -85,7 +86,8 @@ class SendGridInboundWebhookControllerIT {
     when(tokenService.validate(BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(userId)));
     when(merchantCategoryCache.findCategoryFor(any())).thenReturn(Optional.empty());
     when(extractionService.extract(anyString()))
-        .thenReturn(new ExtractionResult(new Money(new BigDecimal("10.00"), "PEN"), new Merchant("Comercio"), CategoryCode.COMPRAS));
+        .thenReturn(
+            new ExtractionResult(new Money(new BigDecimal("10.00"), "PEN"), new Merchant("Comercio"), CategoryCode.COMPRAS, TransactionType.EXPENSE));
   }
 
   @Test
