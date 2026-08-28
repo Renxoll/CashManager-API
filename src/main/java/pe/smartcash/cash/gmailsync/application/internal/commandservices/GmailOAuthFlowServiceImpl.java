@@ -32,7 +32,10 @@ class GmailOAuthFlowServiceImpl implements GmailOAuthFlowService {
   public void completeConnection(String state, String authorizationCode) {
     String userId = stateStore.redeem(state).orElseThrow(InvalidOAuthStateException::new);
     OAuthTokens tokens = oauthPort.exchangeCode(authorizationCode);
+    // fetchEmail nunca lanza (ver su contrato en GoogleOAuthPort) -- un email null no debe
+    // frenar la conexión, solo degrada el panel de cuentas a "sin verificar".
+    String email = oauthPort.fetchEmail(tokens.accessToken());
     connectionCommandService.handle(
-        new StoreGmailConnectionCommand(userId, tokens.accessToken(), tokens.refreshToken(), tokens.accessTokenExpiresAt()));
+        new StoreGmailConnectionCommand(userId, email, tokens.accessToken(), tokens.refreshToken(), tokens.accessTokenExpiresAt()));
   }
 }
