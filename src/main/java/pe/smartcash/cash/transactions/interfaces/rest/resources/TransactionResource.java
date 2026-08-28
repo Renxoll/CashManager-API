@@ -12,4 +12,5 @@ public record TransactionResource(
     String merchant,
     String categoryCode,
     String category,
+    String type,
     Instant createdAt) {}
