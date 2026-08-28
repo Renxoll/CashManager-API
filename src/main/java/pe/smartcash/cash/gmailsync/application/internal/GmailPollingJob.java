@@ -2,6 +2,8 @@ package pe.smartcash.cash.gmailsync.application.internal;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -70,9 +72,9 @@ class GmailPollingJob {
     }
 
     String userId = connection.userId().value().toString();
+    Instant since = effectiveSince(connection.lastSyncedAt(), now);
 
-    List<GmailMessage> trustedMessages =
-        gmailMessagePort.findMatchingMessagesSince(connection.accessToken(), connection.lastSyncedAt(), trustedSenderDomains);
+    List<GmailMessage> trustedMessages = gmailMessagePort.findMatchingMessagesSince(connection.accessToken(), since, trustedSenderDomains);
     for (GmailMessage message : trustedMessages) {
       ingestMessage(userId, message);
     }
@@ -81,14 +83,27 @@ class GmailPollingJob {
     // GoogleGmailApiAdapter.buildCandidateQuery) para descubrir remitentes nuevos que la
     // búsqueda de arriba nunca trae -- están restringidos a from:<dominio confiable>, así
     // que un remitente nuevo ni siquiera se consulta ahí.
-    List<GmailMessage> candidateMessages =
-        gmailMessagePort.findCandidateMessagesSince(connection.accessToken(), connection.lastSyncedAt(), trustedSenderDomains);
+    List<GmailMessage> candidateMessages = gmailMessagePort.findCandidateMessagesSince(connection.accessToken(), since, trustedSenderDomains);
     for (GmailMessage message : candidateMessages) {
       handleCandidateMessage(userId, message);
     }
 
     connection.recordSync(now);
     connectionRepository.save(connection);
+  }
+
+  /**
+   * Nunca busca más atrás que el inicio del mes calendario actual (UTC), sin importar cuánto
+   * tiempo llevaba {@code lastSyncedAt} sin correr -- una conexión reactivada tras meses
+   * inactiva, o el primer sync de una conexión recién creada ({@code lastSyncedAt == null}),
+   * no debe releer todo el historial de la bandeja.
+   */
+  static Instant effectiveSince(Instant lastSyncedAt, Instant now) {
+    Instant startOfCurrentMonth = LocalDate.ofInstant(now, ZoneOffset.UTC).withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    if (lastSyncedAt == null || lastSyncedAt.isBefore(startOfCurrentMonth)) {
+      return startOfCurrentMonth;
+    }
+    return lastSyncedAt;
   }
 
   private void ingestMessage(String userId, GmailMessage message) {

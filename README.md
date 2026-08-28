@@ -116,15 +116,15 @@ constante) y delega a TransactionCommandService.handle(IngestEmailedTransactionC
 |---|---|---|
 | `INBOUND_EMAIL_DOMAIN` | `inbox.smartcash.pe` | Dominio de los buzones generados (`alias-xxxx@...`). Debe coincidir con el dominio que SendGrid tiene configurado para Inbound Parse (MX apuntando a `mx.sendgrid.net`). |
 | `INBOUND_EMAIL_TOKEN` | placeholder de dev, **cambiar en cualquier despliegue real** | Secreto en el query param `?token=` del webhook — Inbound Parse no soporta headers custom, solo se configura la URL de destino. |
-| `INBOUND_EMAIL_TRUSTED_DOMAINS` | `bcp.com.pe,notificaciones.interbank.pe,bbva.pe,netinterbank.com.pe` | Allowlist de dominios de remitente (`AllowlistedBankSenderPolicy`). Cualquier correo de un dominio fuera de esta lista se descarta como no confiable, aunque el buzón destino sí exista. |
+| `INBOUND_EMAIL_TRUSTED_DOMAINS` | `bcp.com.pe,notificaciones.interbank.pe,bbva.pe,netinterbank.com.pe,yape.pe` | Allowlist de dominios de remitente (`AllowlistedBankSenderPolicy`). Cualquier correo de un dominio fuera de esta lista se descarta como no confiable, aunque el buzón destino sí exista. |
 
-### Agregar un banco o billetera nueva (p. ej. Yape o Plin)
+### Agregar un banco o billetera nueva (p. ej. Plin)
 
 `netinterbank.com.pe` (remitente `servicioalcliente@netinterbank.com.pe`) ya está en el
 allowlist — es el dominio real que usa Interbank para notificar tanto operaciones de la
 banca tradicional como de Plin (Plin no tiene dominio propio de notificación: viaja bajo
-el dominio del banco emisor). Sumar una billetera o banco nuevo no toca código, solo
-configuración:
+el dominio del banco emisor). `yape.pe` (remitente `notificaciones@yape.pe`) también está
+en el allowlist. Sumar una billetera o banco nuevo no toca código, solo configuración:
 
 1. Conseguir un correo real de notificación de esa billetera (reenviado por un usuario
    de prueba) y anotar el dominio real del remitente `From:`. `AllowlistedBankSenderPolicy`

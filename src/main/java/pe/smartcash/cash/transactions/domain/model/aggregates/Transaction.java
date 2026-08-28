@@ -63,6 +63,26 @@ public final class Transaction {
     return transaction;
   }
 
+  /**
+   * Ingreso cargado a mano por el usuario desde la app -- no hay notificación bancaria que
+   * extraer, así que nace directo en PROCESSED (sin pasar por PENDING/categorize). {@code
+   * extractionSource} queda MANUAL para que quede claro en la fila que este dato no vino del
+   * LLM ni del cache. No emite ningún evento de dominio -- mismo criterio que {@link
+   * #recategorize}: es una acción síncrona que el usuario ve reflejada al toque en la propia
+   * pantalla, no necesita disparar una notificación push sobre algo que él mismo acaba de
+   * escribir.
+   */
+  public static Transaction recordManualIncome(TransactionId id, UserId userId, String rawText, Money money, Merchant source, Instant recordedAt) {
+    Transaction transaction = new Transaction(id, userId, rawText, recordedAt, TransactionStatus.PROCESSED);
+    transaction.money = Objects.requireNonNull(money, "money");
+    transaction.merchant = Objects.requireNonNull(source, "source");
+    transaction.type = TransactionType.INCOME;
+    transaction.categoryCode = null;
+    transaction.extractionSource = ExtractionSource.MANUAL;
+    transaction.processedAt = recordedAt;
+    return transaction;
+  }
+
   /** Reconstrucción desde persistencia: restaura estado sin re-aplicar invariantes de creación. */
   public static Transaction rehydrate(
       TransactionId id,
