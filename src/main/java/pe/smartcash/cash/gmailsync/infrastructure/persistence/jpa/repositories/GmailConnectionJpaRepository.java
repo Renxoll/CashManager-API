@@ -1,5 +1,6 @@
 package pe.smartcash.cash.gmailsync.infrastructure.persistence.jpa.repositories;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -7,5 +8,7 @@ import pe.smartcash.cash.gmailsync.infrastructure.persistence.GmailConnectionJpa
 
 public interface GmailConnectionJpaRepository extends JpaRepository<GmailConnectionJpaEntity, UUID> {
 
-  Optional<GmailConnectionJpaEntity> findByUserId(UUID userId);
+  List<GmailConnectionJpaEntity> findAllByUserId(UUID userId);
+
+  Optional<GmailConnectionJpaEntity> findByUserIdAndEmail(UUID userId, String email);
 }
