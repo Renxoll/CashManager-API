@@ -3,6 +3,7 @@ package pe.smartcash.cash.transactions.interfaces.rest;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -180,6 +181,57 @@ class TransactionControllerIT {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.type").value("INCOME"))
         .andExpect(jsonPath("$.categoryCode").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  @Test
+  void shouldRecordManualIncomeForAuthenticatedUser() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/transactions/income")
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"amount":1500.00,"currency":"pen","source":"Sueldo agosto"}
+                    """))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.type").value("INCOME"))
+        .andExpect(jsonPath("$.amount").value(1500.00))
+        .andExpect(jsonPath("$.currency").value("PEN"))
+        .andExpect(jsonPath("$.merchant").value("Sueldo agosto"))
+        .andExpect(jsonPath("$.categoryCode").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.status").value("PROCESSED"));
+
+    Long count = jdbcTemplate.queryForObject(
+        "SELECT count(*) FROM transactions WHERE user_id = ? AND type = 'INCOME' AND extraction_source = 'MANUAL'",
+        Long.class,
+        ownerUserId);
+    assertThat(count).isEqualTo(1L);
+  }
+
+  @Test
+  void shouldReturn400WhenManualIncomeAmountIsMissing() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/transactions/income")
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"currency":"PEN","source":"Sueldo agosto"}
+                    """))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void shouldReturn400WhenManualIncomeAmountIsNotPositive() throws Exception {
+    mockMvc
+        .perform(
+            post("/api/v1/transactions/income")
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"amount":0,"currency":"PEN","source":"Sueldo agosto"}
+                    """))
+        .andExpect(status().isBadRequest());
   }
 
   private UUID seedProcessedIncomeTransaction(UUID userId) {
