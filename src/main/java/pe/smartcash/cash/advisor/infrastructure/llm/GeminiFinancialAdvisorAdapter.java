@@ -2,28 +2,35 @@ package pe.smartcash.cash.advisor.infrastructure.llm;
 
 import io.sentry.Sentry;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
-import pe.smartcash.cash.advisor.domain.services.AdvisorChatClient;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
 
 /**
- * Mismo {@code RestClient} que ya arma {@code transactions.infrastructure.llm.LlmClientConfig}
- * para Google AI Studio (base-url + API key de {@code app.llm.*}): es el único bean {@code
- * RestClient} del proyecto, así que se inyecta por tipo sin necesitar wiring nuevo. Se lee
+ * Proveedor primario del asesor. Mismo {@code RestClient} que ya arma {@code
+ * transactions.infrastructure.llm.LlmClientConfig} para Google AI Studio (base-url + API key
+ * de {@code app.llm.*}) -- calificado explícitamente por nombre de bean porque desde que
+ * existe {@link GrokClientConfig} ya no es el único {@code RestClient} del proyecto. Se lee
  * {@code app.llm.model} directo por {@code @Value} en vez de importar {@code LlmProperties}
  * de transactions: así este adaptador no depende de ninguna clase de infraestructura de otro
  * bounded context, solo del mismo namespace de configuración.
+ *
+ * <p>No implementa {@link pe.smartcash.cash.advisor.domain.services.AdvisorChatClient}
+ * directamente -- el único bean que implementa ese puerto es {@link
+ * FallbackAdvisorChatClient}, que compone este adapter con {@link GrokFinancialAdvisorAdapter}
+ * como respaldo. El free tier de Gemini tiene un límite diario de solicitudes muy bajo (20/día
+ * en el proyecto de este equipo) que se agota con uso normal del chat.
  *
  * <p>A diferencia de {@code OpenAiTransactionExtractionAdapter}, acá no hay {@code
  * response_format=json_schema}: la salida es texto libre para el usuario, no un objeto a
  * parsear, así que tampoco hace falta el reintento de "JSON inválido" de la extracción.
  */
 @Component
-class GeminiFinancialAdvisorAdapter implements AdvisorChatClient {
+class GeminiFinancialAdvisorAdapter {
 
   // Más alto que el 0.0 de la extracción (que busca determinismo puro): acá se busca una
   // respuesta con algo de tono natural/empático, sin dejar de ser concisa y analítica.
@@ -32,13 +39,12 @@ class GeminiFinancialAdvisorAdapter implements AdvisorChatClient {
   private final RestClient llmRestClient;
   private final String model;
 
-  GeminiFinancialAdvisorAdapter(RestClient llmRestClient, @Value("${app.llm.model}") String model) {
+  GeminiFinancialAdvisorAdapter(@Qualifier("llmRestClient") RestClient llmRestClient, @Value("${app.llm.model}") String model) {
     this.llmRestClient = llmRestClient;
     this.model = model;
   }
 
-  @Override
-  public String reply(FinancialContext context, String question) {
+  String reply(FinancialContext context, String question) {
     ChatCompletionRequest request =
         new ChatCompletionRequest(
             model,
