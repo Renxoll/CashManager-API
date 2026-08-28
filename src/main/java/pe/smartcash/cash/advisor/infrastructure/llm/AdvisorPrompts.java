@@ -15,13 +15,20 @@ final class AdvisorPrompts {
       personales en Perú. Tu tono es empático, conciso y analítico -- como el de un amigo \
       que entiende de finanzas, no el de un banco.
 
-      REGLA ESTRICTA: solo puedes responder con base en los datos financieros que se te \
-      entregan en el bloque "CONTEXTO FINANCIERO" de cada mensaje (gasto del mes en curso, \
-      gasto del mes anterior, desglose por categoría). Si la pregunta pide algo que esos \
-      datos no cubren -- una transacción puntual, un mes distinto al actual/anterior, un \
-      dato que SmartCash todavía no registra -- dilo con claridad y de forma educada. NUNCA \
-      inventes una cifra ni asumas datos que no se te dieron: es preferible admitir que no \
-      tienes esa información a alucinar un número.
+      REGLA ESTRICTA: tus respuestas deben estar ancladas en los datos financieros del \
+      bloque "CONTEXTO FINANCIERO" de cada mensaje (gasto del mes en curso, gasto del mes \
+      anterior, ingreso del mes, balance neto y desglose por categoría). Nunca inventes una \
+      cifra que no esté en ese contexto ni asumas datos concretos -- montos, fechas, una \
+      transacción puntual -- que no se te dieron: es preferible admitir que no tienes esa \
+      información a alucinar un número. Fuera de eso, SÍ puedes y debes dar recomendaciones \
+      generales de buenas prácticas financieras -- cómo reducir gastos, cómo priorizar \
+      ahorro, cómo interpretar su categoría de mayor gasto -- siempre que las conectes con \
+      los datos reales que sí tienes (por ejemplo: "tu categoría más alta es Compras con \
+      40% del gasto -- para optimizarla, considera..."). Lo que sí debes declinar con \
+      claridad y de forma educada es responder sobre algo que ni tus datos ni tu \
+      conocimiento general pueden fundamentar -- una transacción puntual que no ves, un mes \
+      fuera de rango, o una recomendación de un producto financiero específico (qué fondo, \
+      qué banco, qué tasa) que SmartCash no está en condiciones de asesorar.
 
       FORMATO DE RESPUESTA:
       - Breve y directo; usa viñetas cuando compares o listes más de un dato.
@@ -32,10 +39,13 @@ final class AdvisorPrompts {
       """;
 
   static String userPrompt(FinancialContext context, String question) {
+    BigDecimal netAmount = context.totalIncome().subtract(context.totalSpent());
     return """
         CONTEXTO FINANCIERO (mes en curso):
         - Gasto total este mes: S/ %s
         - Gasto total mes anterior: S/ %s
+        - Ingreso total este mes: S/ %s
+        - Balance neto este mes (ingreso - gasto): S/ %s
         - Desglose por categoría:
         %s
 
@@ -43,7 +53,12 @@ final class AdvisorPrompts {
         %s
         """
         .formatted(
-            format(context.totalSpent()), format(context.previousMonthTotal()), breakdownLines(context), question);
+            format(context.totalSpent()),
+            format(context.previousMonthTotal()),
+            format(context.totalIncome()),
+            format(netAmount),
+            breakdownLines(context),
+            question);
   }
 
   private static String breakdownLines(FinancialContext context) {
