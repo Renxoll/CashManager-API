@@ -17,6 +17,7 @@ import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificati
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionCategorized;
 import pe.smartcash.cash.transactions.domain.model.events.TransactionReceived;
@@ -232,6 +233,22 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
             .filter(t -> t.userId().equals(command.requestingUserId()))
             .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
     transaction.recategorize(command.newCategoryCode());
+    transactionRepository.save(transaction);
+  }
+
+  @Override
+  @Transactional
+  public void handle(SetInternalTransferCommand command) {
+    Transaction transaction =
+        transactionRepository
+            .findById(command.transactionId())
+            .filter(t -> t.userId().equals(command.requestingUserId()))
+            .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
+    if (command.internalTransfer()) {
+      transaction.markAsInternalTransfer();
+    } else {
+      transaction.unmarkAsInternalTransfer();
+    }
     transactionRepository.save(transaction);
   }
 

@@ -35,6 +35,7 @@ final class TransactionEntityMapper {
         // filtra status='PROCESSED' antes de sumar por type.
         .type(transaction.type() != null ? transaction.type() : TransactionType.EXPENSE)
         .errorMessage(transaction.errorMessage())
+        .internalTransfer(transaction.internalTransfer())
         .createdAt(transaction.createdAt())
         .processedAt(transaction.processedAt())
         .build();
@@ -56,6 +57,7 @@ final class TransactionEntityMapper {
         entity.getType(),
         entity.getExtractionSource(),
         entity.getErrorMessage(),
-        entity.getProcessedAt());
+        entity.getProcessedAt(),
+        entity.isInternalTransfer());
   }
 }

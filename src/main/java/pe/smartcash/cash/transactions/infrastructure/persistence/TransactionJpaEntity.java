@@ -67,6 +67,9 @@ public class TransactionJpaEntity {
   @Column(name = "error_message", columnDefinition = "text")
   private String errorMessage;
 
+  @Column(name = "internal_transfer", nullable = false)
+  private boolean internalTransfer;
+
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
 

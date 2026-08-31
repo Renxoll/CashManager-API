@@ -52,6 +52,7 @@ class TransactionQueryServiceImpl implements TransactionQueryService {
         transaction.merchant(),
         category,
         transaction.type(),
+        transaction.internalTransfer(),
         transaction.errorMessage(),
         transaction.createdAt());
   }

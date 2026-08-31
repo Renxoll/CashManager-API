@@ -17,6 +17,7 @@ public final class TransactionResourceFromEntityAssembler {
         detail.category() != null ? detail.category().code().name() : null,
         detail.category() != null ? detail.category().displayName() : null,
         detail.type() != null ? detail.type().name() : null,
+        detail.internalTransfer(),
         detail.createdAt());
   }
 }

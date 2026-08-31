@@ -48,6 +48,7 @@ public class TransactionReadRepository {
             FROM transactions
             WHERE status = 'PROCESSED'
               AND type = :type
+              AND internal_transfer = FALSE
               AND user_id = :userId
               AND created_at >= :from
               AND created_at < :to
@@ -78,6 +79,7 @@ public class TransactionReadRepository {
             JOIN categories c ON c.id = t.category_id
             WHERE t.status = 'PROCESSED'
               AND t.type = 'EXPENSE'
+              AND t.internal_transfer = FALSE
               AND t.user_id = :userId
               AND t.created_at >= :from
               AND t.created_at < :to

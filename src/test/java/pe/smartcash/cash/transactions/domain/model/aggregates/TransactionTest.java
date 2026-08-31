@@ -84,6 +84,38 @@ class TransactionTest {
   }
 
   @Test
+  void shouldMarkAndUnmarkAProcessedTransactionAsInternalTransfer() {
+    Transaction transaction = processedTransaction(CategoryCode.COMIDA);
+    assertThat(transaction.internalTransfer()).isFalse();
+
+    transaction.markAsInternalTransfer();
+    assertThat(transaction.internalTransfer()).isTrue();
+    assertThat(transaction.categoryCode()).isEqualTo(CategoryCode.COMIDA);
+    assertThat(transaction.status()).isEqualTo(TransactionStatus.PROCESSED);
+
+    transaction.unmarkAsInternalTransfer();
+    assertThat(transaction.internalTransfer()).isFalse();
+  }
+
+  @Test
+  void shouldAllowMarkingAnIncomeAsInternalTransfer() {
+    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "Se abonó S/500.00 a tu cuenta", Instant.now());
+    transaction.categorize(
+        new Money(new BigDecimal("500.00"), "PEN"), new Merchant("Yo mismo"), null, ExtractionSource.LLM, Instant.now(), TransactionType.INCOME);
+
+    transaction.markAsInternalTransfer();
+
+    assertThat(transaction.internalTransfer()).isTrue();
+  }
+
+  @Test
+  void shouldRejectMarkingAPendingTransactionAsInternalTransfer() {
+    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "S/10 en algún lado", Instant.now());
+
+    assertThatThrownBy(transaction::markAsInternalTransfer).isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
   void shouldRejectRecategorizingAnIncomeTransaction() {
     Transaction transaction = Transaction.receive(TransactionId.newId(), userId, "Se abonó S/1500.00 a tu cuenta", Instant.now());
     transaction.categorize(
