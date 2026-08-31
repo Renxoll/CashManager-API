@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionByIdQuery;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionsByUserQuery;
@@ -27,6 +28,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionDetail;
 import pe.smartcash.cash.transactions.domain.services.TransactionQueryService;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.CategoryResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualIncomeResource;
+import pe.smartcash.cash.transactions.interfaces.rest.resources.SetInternalTransferResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionPageResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.UpdateTransactionCategoryResource;
@@ -93,6 +95,18 @@ class TransactionController {
     // que mande el cliente es un error del caller y debe volver 400, no colarse como OTROS.
     CategoryCode categoryCode = CategoryCode.valueOf(resource.categoryCode().trim().toUpperCase());
     transactionCommandService.handle(new UpdateTransactionCategoryCommand(id, userId, categoryCode));
+    TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
+    return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
+  }
+
+  @PatchMapping("/{transactionId}/internal-transfer")
+  ResponseEntity<TransactionResource> setInternalTransfer(
+      @PathVariable UUID transactionId,
+      @AuthenticationPrincipal String authenticatedUserId,
+      @Valid @RequestBody SetInternalTransferResource resource) {
+    TransactionId id = TransactionId.of(transactionId);
+    UserId userId = UserId.parse(authenticatedUserId);
+    transactionCommandService.handle(new SetInternalTransferCommand(id, userId, resource.internalTransfer()));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
   }

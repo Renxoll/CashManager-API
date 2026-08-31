@@ -5,6 +5,7 @@ import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificati
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 
@@ -35,6 +36,13 @@ public interface TransactionCommandService {
    * no se distingue "no existe" de "no es tuya").
    */
   void handle(UpdateTransactionCategoryCommand command);
+
+  /**
+   * Marca o desmarca una transacción como transferencia entre cuentas propias del usuario.
+   * Mismo criterio de error que {@link #handle(UpdateTransactionCategoryCommand)}: id
+   * inexistente o de otro usuario → {@code TransactionNotFoundException} (404).
+   */
+  void handle(SetInternalTransferCommand command);
 
   /** Registro manual de un ingreso -- siempre PROCESSED de una, nunca falla por LLM porque
    * no hay extracción de por medio. */

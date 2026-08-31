@@ -17,5 +17,6 @@ public record TransactionDetail(
     Merchant merchant,
     CategoryDescriptor category,
     TransactionType type,
+    boolean internalTransfer,
     String errorMessage,
     Instant createdAt) {}

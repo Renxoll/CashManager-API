@@ -13,4 +13,5 @@ public record TransactionResource(
     String categoryCode,
     String category,
     String type,
+    boolean internalTransfer,
     Instant createdAt) {}
