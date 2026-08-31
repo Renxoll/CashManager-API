@@ -1,11 +1,15 @@
 package pe.smartcash.cash.gmailsync.interfaces.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,6 +53,7 @@ class GmailConnectionControllerIT {
 
   @MockitoBean private TokenService tokenService;
   @MockitoBean private pe.smartcash.cash.gmailsync.domain.services.GoogleOAuthPort googleOAuthPort;
+  @MockitoBean private pe.smartcash.cash.gmailsync.domain.services.GmailMessagePort gmailMessagePort;
 
   private UUID ownerUserId;
   private UUID otherUserId;
@@ -73,6 +78,10 @@ class GmailConnectionControllerIT {
 
     Mockito.when(tokenService.validate(BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(ownerUserId)));
     Mockito.when(tokenService.validate(OTHER_BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(otherUserId)));
+
+    // Sin correos nuevos en Gmail: el sync recorre las conexiones pero no ingesta nada.
+    Mockito.when(gmailMessagePort.findMatchingMessagesSince(any(), any(), anySet())).thenReturn(List.of());
+    Mockito.when(gmailMessagePort.findCandidateMessagesSince(any(), any(), anySet())).thenReturn(List.of());
   }
 
   private UUID seedConnection(UUID userId, String email) {
@@ -121,6 +130,30 @@ class GmailConnectionControllerIT {
 
     Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM gmail_connections WHERE id = ?", Integer.class, id);
     assertThat(count).isZero();
+  }
+
+  @Test
+  void shouldSyncOnlyTheAuthenticatedUsersConnections() throws Exception {
+    seedConnection(ownerUserId, "duenio@gmail.com");
+    seedConnection(otherUserId, "otro@gmail.com");
+
+    mockMvc
+        .perform(post("/api/v1/gmail/connections/sync").header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.connectionsSynced").value(1))
+        .andExpect(jsonPath("$.transactionsIngested").value(0))
+        .andExpect(jsonPath("$.pendingSendersRegistered").value(0))
+        .andExpect(jsonPath("$.syncedAt").exists());
+
+    Mockito.verify(gmailMessagePort).findMatchingMessagesSince(any(), any(), anySet());
+  }
+
+  @Test
+  void shouldReturnZeroCountsWhenUserHasNoConnections() throws Exception {
+    mockMvc
+        .perform(post("/api/v1/gmail/connections/sync").header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.connectionsSynced").value(0));
   }
 
   @Test

@@ -11,13 +11,16 @@ import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
 
 /**
- * Proveedor primario del asesor. Mismo {@code RestClient} que ya arma {@code
- * transactions.infrastructure.llm.LlmClientConfig} para Google AI Studio (base-url + API key
- * de {@code app.llm.*}) -- calificado explícitamente por nombre de bean porque desde que
- * existe {@link GrokClientConfig} ya no es el único {@code RestClient} del proyecto. Se lee
- * {@code app.llm.model} directo por {@code @Value} en vez de importar {@code LlmProperties}
- * de transactions: así este adaptador no depende de ninguna clase de infraestructura de otro
- * bounded context, solo del mismo namespace de configuración.
+ * Proveedor primario del asesor. Usa {@code advisorLlmRestClient} ({@link
+ * AdvisorLlmClientConfig}): mismas credenciales de Google AI Studio que la extracción de
+ * transacciones ({@code app.llm.base-url} + {@code app.llm.api-key}), pero con timeout
+ * propio ({@code app.advisor.llm.timeout}, ~45s) porque el chat usa modelos con razonamiento
+ * mucho más lentos que la extracción. Calificado explícitamente por nombre de bean: hay
+ * varios {@code RestClient} en el proyecto ({@code llmRestClient}, {@code grokRestClient},
+ * {@code advisorLlmRestClient}). Se lee {@code app.llm.model} directo por {@code @Value} en
+ * vez de importar {@code LlmProperties} de transactions: así este adaptador no depende de
+ * ninguna clase de infraestructura de otro bounded context, solo del mismo namespace de
+ * configuración.
  *
  * <p>No implementa {@link pe.smartcash.cash.advisor.domain.services.AdvisorChatClient}
  * directamente -- el único bean que implementa ese puerto es {@link
@@ -36,11 +39,12 @@ class GeminiFinancialAdvisorAdapter {
   // respuesta con algo de tono natural/empático, sin dejar de ser concisa y analítica.
   private static final double TEMPERATURE = 0.4;
 
-  private final RestClient llmRestClient;
+  private final RestClient advisorLlmRestClient;
   private final String model;
 
-  GeminiFinancialAdvisorAdapter(@Qualifier("llmRestClient") RestClient llmRestClient, @Value("${app.llm.model}") String model) {
-    this.llmRestClient = llmRestClient;
+  GeminiFinancialAdvisorAdapter(
+      @Qualifier("advisorLlmRestClient") RestClient advisorLlmRestClient, @Value("${app.llm.model}") String model) {
+    this.advisorLlmRestClient = advisorLlmRestClient;
     this.model = model;
   }
 
@@ -55,7 +59,8 @@ class GeminiFinancialAdvisorAdapter {
 
     ChatCompletionResponse response;
     try {
-      response = llmRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
+      response =
+          advisorLlmRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
     } catch (RestClientException httpError) {
       throw reportFailure(new AdvisorUnavailableException("Fallo de comunicación con el proveedor de LLM", httpError));
     }
