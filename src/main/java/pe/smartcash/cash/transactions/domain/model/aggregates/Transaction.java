@@ -38,6 +38,10 @@ public final class Transaction {
   private ExtractionSource extractionSource;
   private String errorMessage;
   private Instant processedAt;
+  /** Transferencia entre cuentas propias del usuario: no cuenta como gasto ni ingreso real,
+   * analytics la excluye de los totales. La activa/desactiva el usuario a mano (ver {@link
+   * #markAsInternalTransfer} / {@link #unmarkAsInternalTransfer}). */
+  private boolean internalTransfer = false;
 
   private final List<Object> domainEvents = new ArrayList<>();
 
@@ -96,7 +100,8 @@ public final class Transaction {
       TransactionType type,
       ExtractionSource extractionSource,
       String errorMessage,
-      Instant processedAt) {
+      Instant processedAt,
+      boolean internalTransfer) {
     Transaction transaction = new Transaction(id, userId, rawText, createdAt, status);
     transaction.money = money;
     transaction.merchant = merchant;
@@ -105,6 +110,7 @@ public final class Transaction {
     transaction.extractionSource = extractionSource;
     transaction.errorMessage = errorMessage;
     transaction.processedAt = processedAt;
+    transaction.internalTransfer = internalTransfer;
     return transaction;
   }
 
@@ -169,6 +175,25 @@ public final class Transaction {
     this.categoryCode = Objects.requireNonNull(newCategoryCode, "newCategoryCode");
   }
 
+  /**
+   * El usuario marca esta transacción como un movimiento entre sus propias cuentas: sigue
+   * existiendo en su historial, pero analytics deja de contarla como gasto o ingreso. Solo
+   * aplica sobre una transacción ya resuelta (con monto) -- a diferencia de {@link
+   * #recategorize}, vale tanto para EXPENSE como para INCOME (los dos lados de un traspaso).
+   * No emite evento de dominio: es una corrección síncrona que el usuario ve al toque, igual
+   * que {@link #recategorize}.
+   */
+  public void markAsInternalTransfer() {
+    requireStatus(TransactionStatus.PROCESSED, "marcar como transferencia propia");
+    this.internalTransfer = true;
+  }
+
+  /** Revierte {@link #markAsInternalTransfer}: la transacción vuelve a contar en los totales. */
+  public void unmarkAsInternalTransfer() {
+    requireStatus(TransactionStatus.PROCESSED, "desmarcar como transferencia propia");
+    this.internalTransfer = false;
+  }
+
   private void requireStatus(TransactionStatus expected, String action) {
     if (this.status != expected) {
       throw new IllegalStateException(
@@ -229,5 +254,9 @@ public final class Transaction {
 
   public Instant processedAt() {
     return processedAt;
+  }
+
+  public boolean internalTransfer() {
+    return internalTransfer;
   }
 }
