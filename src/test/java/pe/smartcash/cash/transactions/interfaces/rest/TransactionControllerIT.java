@@ -164,6 +164,52 @@ class TransactionControllerIT {
   }
 
   @Test
+  void shouldMarkAndUnmarkOwnTransactionAsInternalTransfer() throws Exception {
+    UUID transactionId = seedProcessedTransaction(ownerUserId, "COMIDA");
+
+    mockMvc
+        .perform(
+            patch("/api/v1/transactions/{id}/internal-transfer", transactionId)
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"internalTransfer":true}
+                    """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.internalTransfer").value(true));
+
+    Boolean stored =
+        jdbcTemplate.queryForObject("SELECT internal_transfer FROM transactions WHERE id = ?", Boolean.class, transactionId);
+    assertThat(stored).isTrue();
+
+    mockMvc
+        .perform(
+            patch("/api/v1/transactions/{id}/internal-transfer", transactionId)
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"internalTransfer":false}
+                    """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.internalTransfer").value(false));
+  }
+
+  @Test
+  void shouldReturn404WhenMarkingSomeoneElsesTransactionAsInternalTransfer() throws Exception {
+    UUID transactionId = seedProcessedTransaction(otherUserId, "COMIDA");
+
+    mockMvc
+        .perform(
+            patch("/api/v1/transactions/{id}/internal-transfer", transactionId)
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"internalTransfer":true}
+                    """))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   void shouldReturn404ForSomeoneElsesTransactionOnGetById() throws Exception {
     UUID transactionId = seedProcessedTransaction(otherUserId, "COMIDA");
 
