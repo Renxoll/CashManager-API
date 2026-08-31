@@ -63,5 +63,15 @@ services:
       - key: LLM_API_KEY
         sync: false
 
+      # --- OAuth de Google: el redirect debe apuntar al dominio propio (api.tuluki.com),
+      # registrado igual en "Authorized redirect URIs" del cliente OAuth. Client ID/Secret
+      # son secretos y se cargan en el dashboard. ---
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        value: https://api.tuluki.com/api/v1/gmail/oauth/callback
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
       - key: FCM_ENABLED
         value: "false"
