@@ -1,0 +1,28 @@
+package pe.smartcash.cash.groups.domain.model.valueobjects;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Referencia al usuario visto desde este bounded context. Deliberadamente NO es el mismo
+ * tipo que {@code iam.domain.model.UserId} u otros -- cada contexto modela su propia noción
+ * de "usuario" y solo se traducen en el borde (ver infrastructure/application ACL).
+ */
+public record UserId(UUID value) {
+
+  public UserId {
+    Objects.requireNonNull(value, "value");
+  }
+
+  public static UserId of(UUID value) {
+    return new UserId(value);
+  }
+
+  public static UserId parse(String raw) {
+    try {
+      return new UserId(UUID.fromString(raw));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("userId inválido: " + raw, e);
+    }
+  }
+}
