@@ -82,10 +82,35 @@ class DashboardControllerIT {
         // Números planos (no BigDecimal) a propósito: JsonPath parsea números JSON como
         // Double, y comparar contra un BigDecimal (incluso con comparesEqualTo) revienta con
         // ClassCastException porque Comparable.compareTo exige el mismo tipo en ambos lados.
-        .andExpect(jsonPath("$.totalSpent").value(50.0))
-        .andExpect(jsonPath("$.totalIncome").value(1500.0))
-        .andExpect(jsonPath("$.breakdown.length()").value(1))
-        .andExpect(jsonPath("$.breakdown[0].categoryName").value("Comida"))
-        .andExpect(jsonPath("$.breakdown[0].amount").value(50.0));
+        .andExpect(jsonPath("$.currencies.length()").value(1))
+        .andExpect(jsonPath("$.currencies[0].currency").value("PEN"))
+        .andExpect(jsonPath("$.currencies[0].totalSpent").value(50.0))
+        .andExpect(jsonPath("$.currencies[0].totalIncome").value(1500.0))
+        .andExpect(jsonPath("$.currencies[0].breakdown.length()").value(1))
+        .andExpect(jsonPath("$.currencies[0].breakdown[0].categoryName").value("Comida"))
+        .andExpect(jsonPath("$.currencies[0].breakdown[0].amount").value(50.0));
+  }
+
+  @Test
+  void monthlySummaryKeepsCurrenciesSeparate() throws Exception {
+    Long categoryId = jdbcTemplate.queryForObject("SELECT id FROM categories WHERE code = 'SERVICIOS'", Long.class);
+    jdbcTemplate.update(
+        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, ?, 'Netflix $9.99', 9.99, 'USD', 'Netflix', 'PROCESSED', 'LLM', 'EXPENSE', now(), now())",
+        UUID.randomUUID(),
+        userId,
+        categoryId);
+
+    mockMvc
+        .perform(get("/api/v1/analytics/monthly-summary").header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.currencies.length()").value(2))
+        // PEN va primero (moneda principal de la app), USD después -- ver DashboardQueryServiceImpl.
+        .andExpect(jsonPath("$.currencies[0].currency").value("PEN"))
+        .andExpect(jsonPath("$.currencies[0].totalSpent").value(50.0))
+        .andExpect(jsonPath("$.currencies[1].currency").value("USD"))
+        .andExpect(jsonPath("$.currencies[1].totalSpent").value(9.99))
+        .andExpect(jsonPath("$.currencies[1].totalIncome").value(0.0))
+        .andExpect(jsonPath("$.currencies[1].breakdown[0].categoryName").value("Servicios"));
   }
 }

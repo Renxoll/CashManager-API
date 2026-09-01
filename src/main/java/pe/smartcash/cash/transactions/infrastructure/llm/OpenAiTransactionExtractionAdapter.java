@@ -13,20 +13,25 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
-import pe.smartcash.cash.transactions.domain.services.TransactionExtractionService;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Adaptador contra el dialecto Chat Completions con Structured Outputs
- * (response_format=json_schema, strict=true). Si el LLM devuelve algo que no parsea como
- * JSON válido, se reintenta UNA vez con un prompt de corrección explícito antes de
+ * Proveedor primario de extracción, contra el dialecto Chat Completions con Structured
+ * Outputs (response_format=json_schema, strict=true). Si el LLM devuelve algo que no parsea
+ * como JSON válido, se reintenta UNA vez con un prompt de corrección explícito antes de
  * rendirse; nunca se reintenta indefinidamente ni se deja pasar basura al dominio.
+ *
+ * <p>No implementa {@link pe.smartcash.cash.transactions.domain.services.TransactionExtractionService}
+ * directamente -- el único bean que implementa ese puerto es {@code
+ * FallbackTransactionExtractionService}, que compone este adapter con {@code
+ * GrokTransactionExtractionAdapter} como respaldo (mismo motivo que Gemini/Grok en el
+ * asesor: el free tier de Gemini tiene un límite diario de solicitudes bajo).
  */
 @Slf4j
 @Component
-class OpenAiTransactionExtractionAdapter implements TransactionExtractionService {
+class OpenAiTransactionExtractionAdapter {
 
   private static final String SCHEMA_JSON =
       """
@@ -59,8 +64,7 @@ class OpenAiTransactionExtractionAdapter implements TransactionExtractionService
     this.responseSchema = parseSchema(objectMapper);
   }
 
-  @Override
-  public ExtractionResult extract(String rawText) {
+  ExtractionResult extract(String rawText) {
     try {
       return callAndParse(ExtractionPrompts.userPrompt(rawText));
     } catch (JacksonException malformed) {

@@ -17,6 +17,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
+import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
 
 /**
  * Cada proveedor se respalda con su propio {@code MockRestServiceServer} (mismo patrón que
