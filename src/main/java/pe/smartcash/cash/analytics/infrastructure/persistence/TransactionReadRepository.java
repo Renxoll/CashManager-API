@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -35,39 +37,51 @@ public class TransactionReadRepository {
   }
 
   /**
-   * {@code COALESCE} a cero: sin transacciones en el rango, SUM natural de SQL da NULL.
-   * {@code type} es {@code "EXPENSE"} o {@code "INCOME"} (mismo criterio que {@code status}
-   * arriba: este read model no importa el enum del contexto transactions, solo pasa el valor
-   * como string -- no hay agregado que proteger acá, ver javadoc de la clase).
+   * Agrupado por moneda a propósito: S/ y $ nunca se suman en una sola cifra, cada una
+   * necesita su propio total (ver {@code CurrencySummary}). {@code type} es {@code "EXPENSE"}
+   * o {@code "INCOME"} (mismo criterio que {@code status} arriba: este read model no importa
+   * el enum del contexto transactions, solo pasa el valor como string -- no hay agregado que
+   * proteger acá, ver javadoc de la clase). Sin filas en el rango, devuelve un mapa vacío (no
+   * hace falta {@code COALESCE}: al no haber grupos, simplemente no hay filas que traer).
    */
-  public BigDecimal sumProcessedAmount(UUID userId, Instant from, Instant to, String type) {
-    return jdbcClient
-        .sql(
-            """
-            SELECT COALESCE(SUM(amount), 0)
-            FROM transactions
-            WHERE status = 'PROCESSED'
-              AND type = :type
-              AND internal_transfer = FALSE
-              AND user_id = :userId
-              AND created_at >= :from
-              AND created_at < :to
-            """)
-        .param("userId", userId)
-        .param("from", toOffsetDateTime(from))
-        .param("to", toOffsetDateTime(to))
-        .param("type", type)
-        .query(BigDecimal.class)
-        .single();
+  public Map<String, BigDecimal> sumProcessedAmountByCurrency(UUID userId, Instant from, Instant to, String type) {
+    List<Object[]> rows =
+        jdbcClient
+            .sql(
+                """
+                SELECT currency, SUM(amount) AS amount
+                FROM transactions
+                WHERE status = 'PROCESSED'
+                  AND type = :type
+                  AND internal_transfer = FALSE
+                  AND user_id = :userId
+                  AND created_at >= :from
+                  AND created_at < :to
+                GROUP BY currency
+                """)
+            .param("userId", userId)
+            .param("from", toOffsetDateTime(from))
+            .param("to", toOffsetDateTime(to))
+            .param("type", type)
+            .query((rs, rowNum) -> new Object[] {rs.getString("currency"), rs.getBigDecimal("amount")})
+            .list();
+
+    Map<String, BigDecimal> byCurrency = new LinkedHashMap<>();
+    for (Object[] row : rows) {
+      byCurrency.put((String) row[0], (BigDecimal) row[1]);
+    }
+    return byCurrency;
   }
 
   /**
    * El porcentaje se calcula acá, en SQL, con una window function sobre el propio resultado
-   * agrupado ({@code SUM(SUM(amount)) OVER ()} = el total del mes, visible en cada fila sin
-   * una segunda consulta ni un round-trip aparte): Postgres hace la división antes de que la
-   * fila salga de la base de datos, nunca en memoria del lado de la aplicación.
+   * agrupado ({@code SUM(SUM(amount)) OVER ()} = el total del mes EN ESA MONEDA, visible en
+   * cada fila sin una segunda consulta ni un round-trip aparte): Postgres hace la división
+   * antes de que la fila salga de la base de datos, nunca en memoria del lado de la
+   * aplicación. Acotado a {@code currency} por el mismo motivo que {@link
+   * #sumProcessedAmountByCurrency} -- mezclar monedas en el mismo 100% no tendría sentido.
    */
-  public List<CategoryBreakdownEntry> findCategoryBreakdown(UUID userId, Instant from, Instant to) {
+  public List<CategoryBreakdownEntry> findCategoryBreakdown(UUID userId, Instant from, Instant to, String currency) {
     return jdbcClient
         .sql(
             """
@@ -81,6 +95,7 @@ public class TransactionReadRepository {
               AND t.type = 'EXPENSE'
               AND t.internal_transfer = FALSE
               AND t.user_id = :userId
+              AND t.currency = :currency
               AND t.created_at >= :from
               AND t.created_at < :to
             GROUP BY c.id, c.display_name
@@ -89,6 +104,7 @@ public class TransactionReadRepository {
         .param("userId", userId)
         .param("from", toOffsetDateTime(from))
         .param("to", toOffsetDateTime(to))
+        .param("currency", currency)
         .query(
             (rs, rowNum) ->
                 new CategoryBreakdownEntry(
