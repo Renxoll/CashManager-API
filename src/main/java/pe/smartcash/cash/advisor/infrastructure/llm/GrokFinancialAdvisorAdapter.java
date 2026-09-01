@@ -8,6 +8,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
+import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
 
 /**
  * Proveedor de respaldo del asesor (xAI Grok, mismo dialecto Chat Completions que Gemini):

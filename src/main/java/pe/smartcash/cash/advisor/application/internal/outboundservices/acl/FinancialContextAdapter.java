@@ -1,5 +1,6 @@
 package pe.smartcash.cash.advisor.application.internal.outboundservices.acl;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.stereotype.Component;
@@ -8,6 +9,7 @@ import pe.smartcash.cash.advisor.domain.services.FinancialContext;
 import pe.smartcash.cash.advisor.domain.services.FinancialContextProvider;
 import pe.smartcash.cash.analytics.domain.model.queries.FindMonthlySummaryQuery;
 import pe.smartcash.cash.analytics.domain.services.CategoryBreakdownEntry;
+import pe.smartcash.cash.analytics.domain.services.CurrencySummary;
 import pe.smartcash.cash.analytics.domain.services.DashboardQueryService;
 import pe.smartcash.cash.analytics.domain.services.MonthlySummary;
 
@@ -30,7 +32,14 @@ class FinancialContextAdapter implements FinancialContextProvider {
   @Override
   public FinancialContext currentMonthContext(UUID userId) {
     MonthlySummary summary = dashboardQueryService.handle(new FindMonthlySummaryQuery(userId));
-    return new FinancialContext(summary.totalSpent(), summary.previousMonthTotal(), summary.totalIncome(), toShares(summary.breakdown()));
+    // El asesor todavía no distingue monedas en el prompt (mezclarlas en el mismo texto
+    // confundiría más de lo que ayuda) -- se queda con la moneda de mayor actividad
+    // (gasto+ingreso) del usuario ese mes, no necesariamente PEN. Sin ninguna transacción,
+    // MonthlySummary siempre trae al menos un CurrencySummary vacío en PEN (ver
+    // DashboardQueryServiceImpl), así que esto nunca lanza sobre lista vacía.
+    CurrencySummary primary =
+        summary.currencies().stream().max(Comparator.comparing(c -> c.totalSpent().add(c.totalIncome()), Comparator.naturalOrder())).orElseThrow();
+    return new FinancialContext(primary.totalSpent(), primary.previousMonthTotal(), primary.totalIncome(), toShares(primary.breakdown()));
   }
 
   private List<CategoryShare> toShares(List<CategoryBreakdownEntry> breakdown) {

@@ -1,4 +1,4 @@
-package pe.smartcash.cash.advisor.infrastructure.llm;
+package pe.smartcash.cash.transactions.infrastructure.llm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -6,23 +6,21 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
-import java.math.BigDecimal;
 import java.time.Duration;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
-import pe.smartcash.cash.advisor.domain.services.FinancialContext;
 import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
+import tools.jackson.databind.ObjectMapper;
 
-/** Mismo patrón de test que {@link GeminiFinancialAdvisorAdapterTest} -- ver esa clase para
- * la justificación de usar {@code MockRestServiceServer}. */
-class GrokFinancialAdvisorAdapterTest {
+/** Mismo patrón {@code MockRestServiceServer} que {@code GeminiFinancialAdvisorAdapterTest} --
+ * ver esa clase para la justificación. */
+class GrokTransactionExtractionAdapterTest {
 
-  private final FinancialContext context = new FinancialContext(BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
+  private final ObjectMapper objectMapper = new ObjectMapper();
   private final GrokProperties properties = new GrokProperties("http://grok.test", "test-key", "grok-4.6", Duration.ofSeconds(8));
 
   private RestClient.Builder newBuilder() {
@@ -30,7 +28,7 @@ class GrokFinancialAdvisorAdapterTest {
   }
 
   @Test
-  void shouldThrowWhenContentIsBlank() {
+  void shouldExtractFromAValidJsonResponse() {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
@@ -39,31 +37,31 @@ class GrokFinancialAdvisorAdapterTest {
         .andRespond(
             withSuccess(
                 """
-                {"choices":[{"message":{"role":"assistant","content":"   "}}]}
+                {"choices":[{"message":{"role":"assistant","content":"{\\"monto\\":6.50,\\"moneda\\":\\"PEN\\",\\"comercio\\":\\"Feel Good Villa\\",\\"categoria\\":\\"COMIDA\\"}"}}]}
                 """,
                 MediaType.APPLICATION_JSON));
 
-    GrokFinancialAdvisorAdapter adapter = new GrokFinancialAdvisorAdapter(builder.build(), properties);
+    GrokTransactionExtractionAdapter adapter = new GrokTransactionExtractionAdapter(builder.build(), properties, objectMapper);
 
-    assertThatThrownBy(() -> adapter.reply(context, "dame recomendaciones de inversión")).isInstanceOf(AdvisorUnavailableException.class);
+    var result = adapter.extract("Realizaste un consumo de S/ 6.50 con tu Tarjeta de Débito BCP en Feel Good Villa.");
+
+    assertThat(result.money().amount()).isEqualByComparingTo("6.50");
+    assertThat(result.merchant().name()).isEqualTo("Feel Good Villa");
   }
 
   @Test
-  void shouldReturnContentWhenNonBlank() {
+  void shouldThrowWhenNoChoicesComeBack() {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
         .expect(requestTo("http://grok.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
-        .andRespond(
-            withSuccess(
-                """
-                {"choices":[{"message":{"role":"assistant","content":"Gastaste S/10 este mes."}}]}
-                """,
-                MediaType.APPLICATION_JSON));
+        .andRespond(withSuccess("""
+            {"choices":[]}
+            """, MediaType.APPLICATION_JSON));
 
-    GrokFinancialAdvisorAdapter adapter = new GrokFinancialAdvisorAdapter(builder.build(), properties);
+    GrokTransactionExtractionAdapter adapter = new GrokTransactionExtractionAdapter(builder.build(), properties, objectMapper);
 
-    assertThat(adapter.reply(context, "cuanto gasté")).isEqualTo("Gastaste S/10 este mes.");
+    assertThatThrownBy(() -> adapter.extract("texto cualquiera")).isInstanceOf(TransactionExtractionFailedException.class);
   }
 }
