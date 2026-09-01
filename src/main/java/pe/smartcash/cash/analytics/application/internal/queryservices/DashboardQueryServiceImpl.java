@@ -1,11 +1,17 @@
 package pe.smartcash.cash.analytics.application.internal.queryservices;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import pe.smartcash.cash.analytics.domain.model.queries.FindMonthlySummaryQuery;
+import pe.smartcash.cash.analytics.domain.services.CurrencySummary;
 import pe.smartcash.cash.analytics.domain.services.DashboardQueryService;
 import pe.smartcash.cash.analytics.domain.services.MonthlySummary;
 import pe.smartcash.cash.analytics.infrastructure.persistence.TransactionReadRepository;
@@ -27,6 +33,8 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
     this.clock = clock;
   }
 
+  private static final String DEFAULT_CURRENCY = "PEN";
+
   @Override
   public MonthlySummary handle(FindMonthlySummaryQuery query) {
     YearMonth currentMonth = YearMonth.from(clock.instant().atZone(ZoneOffset.UTC));
@@ -36,13 +44,39 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
     Instant currentMonthStart = startOf(currentMonth);
     Instant nextMonthStart = startOf(currentMonth.plusMonths(1));
 
-    var totalSpent = transactionReadRepository.sumProcessedAmount(query.userId(), currentMonthStart, nextMonthStart, "EXPENSE");
-    var previousMonthTotal =
-        transactionReadRepository.sumProcessedAmount(query.userId(), previousMonthStart, currentMonthStart, "EXPENSE");
-    var totalIncome = transactionReadRepository.sumProcessedAmount(query.userId(), currentMonthStart, nextMonthStart, "INCOME");
-    var breakdown = transactionReadRepository.findCategoryBreakdown(query.userId(), currentMonthStart, nextMonthStart);
+    Map<String, BigDecimal> currentExpenseByCurrency =
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), currentMonthStart, nextMonthStart, "EXPENSE");
+    Map<String, BigDecimal> previousExpenseByCurrency =
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), previousMonthStart, currentMonthStart, "EXPENSE");
+    Map<String, BigDecimal> currentIncomeByCurrency =
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), currentMonthStart, nextMonthStart, "INCOME");
 
-    return new MonthlySummary(totalSpent, previousMonthTotal, totalIncome, breakdown);
+    // Unión de las 3 monedas con algo de movimiento en cualquiera de las dos ventanas -- si
+    // no hay ninguna (usuario recién registrado, sin transacciones todavía), se muestra un
+    // único resumen en PEN vacío en vez de una lista vacía sin nada que renderizar.
+    Set<String> currencies = new LinkedHashSet<>();
+    currencies.addAll(currentExpenseByCurrency.keySet());
+    currencies.addAll(previousExpenseByCurrency.keySet());
+    currencies.addAll(currentIncomeByCurrency.keySet());
+    if (currencies.isEmpty()) {
+      currencies.add(DEFAULT_CURRENCY);
+    }
+
+    var summaries =
+        currencies.stream()
+            // PEN primero (moneda principal de la app), el resto alfabético.
+            .sorted(Comparator.comparing((String c) -> !c.equals(DEFAULT_CURRENCY)).thenComparing(Comparator.naturalOrder()))
+            .map(
+                currency ->
+                    new CurrencySummary(
+                        currency,
+                        currentExpenseByCurrency.getOrDefault(currency, BigDecimal.ZERO),
+                        previousExpenseByCurrency.getOrDefault(currency, BigDecimal.ZERO),
+                        currentIncomeByCurrency.getOrDefault(currency, BigDecimal.ZERO),
+                        transactionReadRepository.findCategoryBreakdown(query.userId(), currentMonthStart, nextMonthStart, currency)))
+            .toList();
+
+    return new MonthlySummary(summaries);
   }
 
   private static Instant startOf(YearMonth yearMonth) {
