@@ -16,6 +16,7 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
+import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
 
 /** Mismo patrón de test que {@link GeminiFinancialAdvisorAdapterTest} -- ver esa clase para
  * la justificación de usar {@code MockRestServiceServer}. */
