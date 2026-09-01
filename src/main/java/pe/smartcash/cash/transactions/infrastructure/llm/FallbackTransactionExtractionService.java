@@ -8,7 +8,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionExtractionServi
 /**
  * Único bean que implementa el puerto {@link TransactionExtractionService}: compone dos
  * proveedores de LLM, {@link OpenAiTransactionExtractionAdapter} como primario y {@link
- * GrokTransactionExtractionAdapter} como respaldo -- mismo patrón que {@code
+ * GroqTransactionExtractionAdapter} como respaldo -- mismo patrón que {@code
  * advisor.infrastructure.llm.FallbackAdvisorChatClient}. Si el primario falla (cuota diaria
  * de Gemini excedida, timeout, JSON inválido tras reintento) se reintenta con el respaldo
  * antes de marcar la transacción FAILED; solo si ambos fallan se propaga la excepción (con
@@ -18,9 +18,9 @@ import pe.smartcash.cash.transactions.domain.services.TransactionExtractionServi
 class FallbackTransactionExtractionService implements TransactionExtractionService {
 
   private final OpenAiTransactionExtractionAdapter primary;
-  private final GrokTransactionExtractionAdapter fallback;
+  private final GroqTransactionExtractionAdapter fallback;
 
-  FallbackTransactionExtractionService(OpenAiTransactionExtractionAdapter primary, GrokTransactionExtractionAdapter fallback) {
+  FallbackTransactionExtractionService(OpenAiTransactionExtractionAdapter primary, GroqTransactionExtractionAdapter fallback) {
     this.primary = primary;
     this.fallback = fallback;
   }

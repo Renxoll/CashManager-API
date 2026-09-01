@@ -13,7 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import tools.jackson.databind.ObjectMapper;
@@ -28,9 +28,9 @@ class FallbackTransactionExtractionServiceTest {
     return new OpenAiTransactionExtractionAdapter(builder.build(), new LlmProperties("http://gemini.test", "test-key", "gemini-3.6-flash", Duration.ofSeconds(8), 2), objectMapper);
   }
 
-  private GrokTransactionExtractionAdapter grokAdapter(RestClient.Builder builder) {
-    return new GrokTransactionExtractionAdapter(
-        builder.build(), new GrokProperties("http://grok.test", "test-key", "grok-4.6", Duration.ofSeconds(8)), objectMapper);
+  private GroqTransactionExtractionAdapter groqAdapter(RestClient.Builder builder) {
+    return new GroqTransactionExtractionAdapter(
+        builder.build(), new GroqProperties("http://groq.test", "test-key", "llama-3.3-70b-versatile", Duration.ofSeconds(8)), objectMapper);
   }
 
   @Test
@@ -47,11 +47,11 @@ class FallbackTransactionExtractionServiceTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    // Sin ninguna expectativa configurada en el server de Grok: si el fallback llegara a
+    // Sin ninguna expectativa configurada en el server de Groq: si el fallback llegara a
     // invocarse cuando no debía, esta llamada fallaría con un error de conexión real.
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
 
-    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
     ExtractionResult result = service.extract("Consumo de S/6.50 en Feel Good Villa");
 
@@ -60,15 +60,15 @@ class FallbackTransactionExtractionServiceTest {
   }
 
   @Test
-  void fallsBackToGrokWhenPrimaryFails() {
+  void fallsBackToGroqWhenPrimaryFails() {
     RestClient.Builder geminiBuilder = RestClient.builder().baseUrl("http://gemini.test");
     MockRestServiceServer geminiServer = MockRestServiceServer.bindTo(geminiBuilder).build();
     geminiServer.expect(requestTo("http://gemini.test/chat/completions")).andExpect(method(HttpMethod.POST)).andRespond(withServerError());
 
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
-    MockRestServiceServer grokServer = MockRestServiceServer.bindTo(grokBuilder).build();
-    grokServer
-        .expect(requestTo("http://grok.test/chat/completions"))
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
+    MockRestServiceServer groqServer = MockRestServiceServer.bindTo(groqBuilder).build();
+    groqServer
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(
             withSuccess(
@@ -77,13 +77,13 @@ class FallbackTransactionExtractionServiceTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
     ExtractionResult result = service.extract("Consumo de S/6.50 en Feel Good Villa");
 
     assertThat(result.merchant().name()).isEqualTo("Feel Good Villa");
     geminiServer.verify();
-    grokServer.verify();
+    groqServer.verify();
   }
 
   @Test
@@ -92,11 +92,11 @@ class FallbackTransactionExtractionServiceTest {
     MockRestServiceServer geminiServer = MockRestServiceServer.bindTo(geminiBuilder).build();
     geminiServer.expect(requestTo("http://gemini.test/chat/completions")).andExpect(method(HttpMethod.POST)).andRespond(withServerError());
 
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
-    MockRestServiceServer grokServer = MockRestServiceServer.bindTo(grokBuilder).build();
-    grokServer.expect(requestTo("http://grok.test/chat/completions")).andExpect(method(HttpMethod.POST)).andRespond(withServerError());
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
+    MockRestServiceServer groqServer = MockRestServiceServer.bindTo(groqBuilder).build();
+    groqServer.expect(requestTo("http://groq.test/chat/completions")).andExpect(method(HttpMethod.POST)).andRespond(withServerError());
 
-    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackTransactionExtractionService service = new FallbackTransactionExtractionService(openAiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
     assertThatThrownBy(() -> service.extract("Consumo de S/6.50 en Feel Good Villa"))
         .isInstanceOf(TransactionExtractionFailedException.class)

@@ -421,10 +421,10 @@ verdad (`NoOpTransactionNotifierAdapter`).
 | `LLM_MODEL` | `gpt-4o-mini` | Modelo del proveedor primario (extracción + asesor). Ej. Gemini: `gemini-3.6-flash`. |
 | `LLM_TIMEOUT` | `8s` | Timeout de la **extracción de transacciones** (`OpenAiTransactionExtractionAdapter`). Corto a propósito: corre en el worker async con reintentos (`app.llm.max-retries`), la meta es fallar rápido y reintentar. |
 | `ADVISOR_LLM_TIMEOUT` | `45s` | Timeout del **asesor financiero** (`GeminiFinancialAdvisorAdapter`, vía `AdvisorLlmClientConfig`). Separado de `LLM_TIMEOUT` porque los modelos de chat con razonamiento (p. ej. `gemini-3.x-flash`) tardan 10-30s en responder sin streaming; subir `LLM_TIMEOUT` en cambio arrastraría los reintentos del worker de ingesta. |
-| `XAI_BASE_URL` | `https://api.x.ai/v1` | Endpoint de xAI Grok, proveedor de respaldo del asesor (ver `FallbackAdvisorChatClient`). Solo se usa si el proveedor primario falla. Acepta cualquier proveedor con dialecto OpenAI Chat Completions (Groq, otra key de Gemini, etc.). |
-| `XAI_API_KEY` | *(vacío)* | API key del proveedor de respaldo. |
-| `XAI_MODEL` | `grok-4.6` | Modelo de respaldo a usar. |
-| `XAI_TIMEOUT` | `45s` | Timeout del proveedor de respaldo del asesor. Mismo criterio de latencia que `ADVISOR_LLM_TIMEOUT`. |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Endpoint de Groq Cloud (groq.com -- NO confundir con Grok de xAI, que requiere saldo cargado), proveedor de respaldo del asesor y de la extracción de transacciones (ver `FallbackAdvisorChatClient`/`FallbackTransactionExtractionService`). Solo se usa si el proveedor primario (Gemini) falla. Acepta cualquier proveedor con dialecto OpenAI Chat Completions. |
+| `GROQ_API_KEY` | *(vacío)* | API key del proveedor de respaldo (gratis en [console.groq.com](https://console.groq.com), sin tarjeta). |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Modelo de respaldo a usar. |
+| `GROQ_TIMEOUT` | `45s` | Timeout del proveedor de respaldo. Mismo criterio de latencia que `ADVISOR_LLM_TIMEOUT`. |
 | `FCM_ENABLED` | `false` | `true` activa la integración real con Firebase. |
 | `FCM_CREDENTIALS_PATH` | `/secrets/firebase-service-account.json` | Service account JSON de Firebase. |
 | `IAM_TOKEN_SECRET` | placeholder de dev, **cambiar en cualquier despliegue real** | Secreto HMAC que firma los access tokens. |

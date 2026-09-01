@@ -26,7 +26,7 @@ import tools.jackson.databind.ObjectMapper;
  * <p>No implementa {@link pe.smartcash.cash.transactions.domain.services.TransactionExtractionService}
  * directamente -- el único bean que implementa ese puerto es {@code
  * FallbackTransactionExtractionService}, que compone este adapter con {@code
- * GrokTransactionExtractionAdapter} como respaldo (mismo motivo que Gemini/Grok en el
+ * GroqTransactionExtractionAdapter} como respaldo (mismo motivo que Gemini/Groq en el
  * asesor: el free tier de Gemini tiene un límite diario de solicitudes bajo).
  */
 @Slf4j
