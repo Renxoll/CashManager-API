@@ -12,19 +12,19 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
 import tools.jackson.databind.ObjectMapper;
 
 /** Mismo patrón {@code MockRestServiceServer} que {@code GeminiFinancialAdvisorAdapterTest} --
  * ver esa clase para la justificación. */
-class GrokTransactionExtractionAdapterTest {
+class GroqTransactionExtractionAdapterTest {
 
   private final ObjectMapper objectMapper = new ObjectMapper();
-  private final GrokProperties properties = new GrokProperties("http://grok.test", "test-key", "grok-4.6", Duration.ofSeconds(8));
+  private final GroqProperties properties = new GroqProperties("http://groq.test", "test-key", "llama-3.3-70b-versatile", Duration.ofSeconds(8));
 
   private RestClient.Builder newBuilder() {
-    return RestClient.builder().baseUrl("http://grok.test");
+    return RestClient.builder().baseUrl("http://groq.test");
   }
 
   @Test
@@ -32,7 +32,7 @@ class GrokTransactionExtractionAdapterTest {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
-        .expect(requestTo("http://grok.test/chat/completions"))
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(
             withSuccess(
@@ -41,7 +41,7 @@ class GrokTransactionExtractionAdapterTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    GrokTransactionExtractionAdapter adapter = new GrokTransactionExtractionAdapter(builder.build(), properties, objectMapper);
+    GroqTransactionExtractionAdapter adapter = new GroqTransactionExtractionAdapter(builder.build(), properties, objectMapper);
 
     var result = adapter.extract("Realizaste un consumo de S/ 6.50 con tu Tarjeta de Débito BCP en Feel Good Villa.");
 
@@ -54,13 +54,13 @@ class GrokTransactionExtractionAdapterTest {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
-        .expect(requestTo("http://grok.test/chat/completions"))
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(withSuccess("""
             {"choices":[]}
             """, MediaType.APPLICATION_JSON));
 
-    GrokTransactionExtractionAdapter adapter = new GrokTransactionExtractionAdapter(builder.build(), properties, objectMapper);
+    GroqTransactionExtractionAdapter adapter = new GroqTransactionExtractionAdapter(builder.build(), properties, objectMapper);
 
     assertThatThrownBy(() -> adapter.extract("texto cualquiera")).isInstanceOf(TransactionExtractionFailedException.class);
   }

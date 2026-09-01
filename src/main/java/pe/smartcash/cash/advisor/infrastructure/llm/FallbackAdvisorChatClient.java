@@ -7,18 +7,18 @@ import pe.smartcash.cash.advisor.domain.services.FinancialContext;
 
 /**
  * Único bean que implementa el puerto {@link AdvisorChatClient}: compone dos proveedores de
- * LLM, {@link GeminiFinancialAdvisorAdapter} como primario y {@link GrokFinancialAdvisorAdapter}
+ * LLM, {@link GeminiFinancialAdvisorAdapter} como primario y {@link GroqFinancialAdvisorAdapter}
  * como respaldo. Si Gemini falla (cuota diaria excedida, timeout, respuesta vacía) se reintenta
- * con Grok antes de devolverle un 503 al usuario; solo si ambos fallan se propaga la excepción
+ * con Groq antes de devolverle un 503 al usuario; solo si ambos fallan se propaga la excepción
  * (con el fallo original de Gemini adjunto como suprimido, para no perder esa causa en Sentry).
  */
 @Component
 class FallbackAdvisorChatClient implements AdvisorChatClient {
 
   private final GeminiFinancialAdvisorAdapter primary;
-  private final GrokFinancialAdvisorAdapter fallback;
+  private final GroqFinancialAdvisorAdapter fallback;
 
-  FallbackAdvisorChatClient(GeminiFinancialAdvisorAdapter primary, GrokFinancialAdvisorAdapter fallback) {
+  FallbackAdvisorChatClient(GeminiFinancialAdvisorAdapter primary, GroqFinancialAdvisorAdapter fallback) {
     this.primary = primary;
     this.fallback = fallback;
   }

@@ -8,26 +8,26 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 
 /**
- * Proveedor de respaldo del asesor (xAI Grok, mismo dialecto Chat Completions que Gemini):
+ * Proveedor de respaldo del asesor (Groq Cloud, mismo dialecto Chat Completions que Gemini):
  * solo se invoca desde {@link FallbackAdvisorChatClient} cuando {@link
  * GeminiFinancialAdvisorAdapter} falla. No implementa {@code AdvisorChatClient} directamente
  * por la misma razón que el adapter primario -- ver esa clase.
  */
 @Component
-class GrokFinancialAdvisorAdapter {
+class GroqFinancialAdvisorAdapter {
 
   // Mismo valor que el adapter primario: se busca el mismo tono en la respuesta de
   // respaldo, no un comportamiento distinto solo porque cambió el proveedor.
   private static final double TEMPERATURE = 0.4;
 
-  private final RestClient grokRestClient;
+  private final RestClient groqRestClient;
   private final String model;
 
-  GrokFinancialAdvisorAdapter(@Qualifier("grokRestClient") RestClient grokRestClient, GrokProperties properties) {
-    this.grokRestClient = grokRestClient;
+  GroqFinancialAdvisorAdapter(@Qualifier("groqRestClient") RestClient groqRestClient, GroqProperties properties) {
+    this.groqRestClient = groqRestClient;
     this.model = properties.model();
   }
 
@@ -42,7 +42,7 @@ class GrokFinancialAdvisorAdapter {
 
     ChatCompletionResponse response;
     try {
-      response = grokRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
+      response = groqRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
     } catch (RestClientException httpError) {
       throw reportFailure(new AdvisorUnavailableException("Fallo de comunicación con el proveedor de LLM de respaldo", httpError));
     }

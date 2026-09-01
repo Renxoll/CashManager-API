@@ -9,7 +9,7 @@ import tools.jackson.databind.JsonNode;
 record ChatCompletionRequest(
     String model,
     List<ChatMessage> messages,
-    // NON_NULL a propósito: el proveedor de respaldo (Grok, ver GrokTransactionExtractionAdapter)
+    // NON_NULL a propósito: el proveedor de respaldo (Groq, ver GroqTransactionExtractionAdapter)
     // no usa Structured Outputs y arma el request con responseFormat=null -- sin esto, se
     // mandaría "response_format":null en el body, que algunos proveedores no toleran.
     @JsonProperty("response_format") @JsonInclude(JsonInclude.Include.NON_NULL) ResponseFormat responseFormat,

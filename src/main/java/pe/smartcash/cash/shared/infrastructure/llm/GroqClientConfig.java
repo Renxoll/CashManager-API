@@ -7,10 +7,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.web.client.RestClient;
 
 @Configuration
-class GrokClientConfig {
+class GroqClientConfig {
 
   @Bean
-  RestClient grokRestClient(RestClient.Builder restClientBuilder, GrokProperties properties) {
+  RestClient groqRestClient(RestClient.Builder restClientBuilder, GroqProperties properties) {
     HttpClientSettings settings =
         HttpClientSettings.defaults().withConnectTimeout(properties.timeout()).withReadTimeout(properties.timeout());
 

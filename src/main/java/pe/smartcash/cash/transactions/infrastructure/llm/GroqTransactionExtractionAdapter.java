@@ -7,7 +7,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
@@ -18,7 +18,7 @@ import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
 /**
- * Proveedor de respaldo de extracción (xAI Grok): solo se invoca desde {@code
+ * Proveedor de respaldo de extracción (Groq Cloud): solo se invoca desde {@code
  * FallbackTransactionExtractionService} cuando {@link OpenAiTransactionExtractionAdapter}
  * falla. A diferencia del adapter primario, NO usa Structured Outputs
  * (response_format=json_schema): no todos los proveedores OpenAI-compatibles soportan esa
@@ -29,14 +29,14 @@ import tools.jackson.databind.ObjectMapper;
  */
 @Slf4j
 @Component
-class GrokTransactionExtractionAdapter {
+class GroqTransactionExtractionAdapter {
 
-  private final RestClient grokRestClient;
+  private final RestClient groqRestClient;
   private final String model;
   private final ObjectMapper objectMapper;
 
-  GrokTransactionExtractionAdapter(@Qualifier("grokRestClient") RestClient grokRestClient, GrokProperties properties, ObjectMapper objectMapper) {
-    this.grokRestClient = grokRestClient;
+  GroqTransactionExtractionAdapter(@Qualifier("groqRestClient") RestClient groqRestClient, GroqProperties properties, ObjectMapper objectMapper) {
+    this.groqRestClient = groqRestClient;
     this.model = properties.model();
     this.objectMapper = objectMapper;
   }
@@ -71,7 +71,7 @@ class GrokTransactionExtractionAdapter {
             model, List.of(new ChatMessage("system", ExtractionPrompts.SYSTEM_PROMPT), new ChatMessage("user", userContent)), null, 0.0);
 
     ChatCompletionResponse response =
-        grokRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
+        groqRestClient.post().uri("/chat/completions").body(request).retrieve().body(ChatCompletionResponse.class);
 
     if (response == null || response.choices() == null || response.choices().isEmpty()) {
       throw reportFailure(new TransactionExtractionFailedException("El proveedor de LLM de respaldo devolvió una respuesta sin choices"));

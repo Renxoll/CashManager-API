@@ -16,17 +16,17 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 
 /** Mismo patrón de test que {@link GeminiFinancialAdvisorAdapterTest} -- ver esa clase para
  * la justificación de usar {@code MockRestServiceServer}. */
-class GrokFinancialAdvisorAdapterTest {
+class GroqFinancialAdvisorAdapterTest {
 
   private final FinancialContext context = new FinancialContext(BigDecimal.TEN, BigDecimal.ZERO, BigDecimal.ZERO, List.of());
-  private final GrokProperties properties = new GrokProperties("http://grok.test", "test-key", "grok-4.6", Duration.ofSeconds(8));
+  private final GroqProperties properties = new GroqProperties("http://groq.test", "test-key", "llama-3.3-70b-versatile", Duration.ofSeconds(8));
 
   private RestClient.Builder newBuilder() {
-    return RestClient.builder().baseUrl("http://grok.test");
+    return RestClient.builder().baseUrl("http://groq.test");
   }
 
   @Test
@@ -34,7 +34,7 @@ class GrokFinancialAdvisorAdapterTest {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
-        .expect(requestTo("http://grok.test/chat/completions"))
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(
             withSuccess(
@@ -43,7 +43,7 @@ class GrokFinancialAdvisorAdapterTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    GrokFinancialAdvisorAdapter adapter = new GrokFinancialAdvisorAdapter(builder.build(), properties);
+    GroqFinancialAdvisorAdapter adapter = new GroqFinancialAdvisorAdapter(builder.build(), properties);
 
     assertThatThrownBy(() -> adapter.reply(context, "dame recomendaciones de inversión")).isInstanceOf(AdvisorUnavailableException.class);
   }
@@ -53,7 +53,7 @@ class GrokFinancialAdvisorAdapterTest {
     RestClient.Builder builder = newBuilder();
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
     server
-        .expect(requestTo("http://grok.test/chat/completions"))
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(
             withSuccess(
@@ -62,7 +62,7 @@ class GrokFinancialAdvisorAdapterTest {
                 """,
                 MediaType.APPLICATION_JSON));
 
-    GrokFinancialAdvisorAdapter adapter = new GrokFinancialAdvisorAdapter(builder.build(), properties);
+    GroqFinancialAdvisorAdapter adapter = new GroqFinancialAdvisorAdapter(builder.build(), properties);
 
     assertThat(adapter.reply(context, "cuanto gasté")).isEqualTo("Gastaste S/10 este mes.");
   }

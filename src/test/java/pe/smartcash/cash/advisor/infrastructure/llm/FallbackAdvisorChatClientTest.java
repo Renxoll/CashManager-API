@@ -17,11 +17,11 @@ import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import pe.smartcash.cash.advisor.domain.exception.AdvisorUnavailableException;
 import pe.smartcash.cash.advisor.domain.services.FinancialContext;
-import pe.smartcash.cash.shared.infrastructure.llm.GrokProperties;
+import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 
 /**
  * Cada proveedor se respalda con su propio {@code MockRestServiceServer} (mismo patrón que
- * {@link GeminiFinancialAdvisorAdapterTest}/{@link GrokFinancialAdvisorAdapterTest}) en vez de
+ * {@link GeminiFinancialAdvisorAdapterTest}/{@link GroqFinancialAdvisorAdapterTest}) en vez de
  * mockear las clases directamente -- no hay precedente de mocking de clases concretas en este
  * proyecto, y esto ejercita el flujo real de fallback extremo a extremo.
  */
@@ -33,8 +33,9 @@ class FallbackAdvisorChatClientTest {
     return new GeminiFinancialAdvisorAdapter(builder.build(), "gemini-3.6-flash");
   }
 
-  private GrokFinancialAdvisorAdapter grokAdapter(RestClient.Builder builder) {
-    return new GrokFinancialAdvisorAdapter(builder.build(), new GrokProperties("http://grok.test", "test-key", "grok-4.6", Duration.ofSeconds(8)));
+  private GroqFinancialAdvisorAdapter groqAdapter(RestClient.Builder builder) {
+    return new GroqFinancialAdvisorAdapter(
+        builder.build(), new GroqProperties("http://groq.test", "test-key", "llama-3.3-70b-versatile", Duration.ofSeconds(8)));
   }
 
   @Test
@@ -48,18 +49,18 @@ class FallbackAdvisorChatClientTest {
             {"choices":[{"message":{"role":"assistant","content":"respuesta de Gemini"}}]}
             """, MediaType.APPLICATION_JSON));
 
-    // Sin ninguna expectativa configurada en el server de Grok: si el fallback llegara a
+    // Sin ninguna expectativa configurada en el server de Groq: si el fallback llegara a
     // invocarse cuando no debía, esta llamada fallaría con un error de conexión real.
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
 
-    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
     assertThat(client.reply(context, "cuanto gasté")).isEqualTo("respuesta de Gemini");
     geminiServer.verify();
   }
 
   @Test
-  void fallsBackToGrokWhenPrimaryFails() {
+  void fallsBackToGroqWhenPrimaryFails() {
     RestClient.Builder geminiBuilder = RestClient.builder().baseUrl("http://gemini.test");
     MockRestServiceServer geminiServer = MockRestServiceServer.bindTo(geminiBuilder).build();
     geminiServer
@@ -67,20 +68,20 @@ class FallbackAdvisorChatClientTest {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withServerError());
 
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
-    MockRestServiceServer grokServer = MockRestServiceServer.bindTo(grokBuilder).build();
-    grokServer
-        .expect(requestTo("http://grok.test/chat/completions"))
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
+    MockRestServiceServer groqServer = MockRestServiceServer.bindTo(groqBuilder).build();
+    groqServer
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(withSuccess("""
-            {"choices":[{"message":{"role":"assistant","content":"respuesta de Grok"}}]}
+            {"choices":[{"message":{"role":"assistant","content":"respuesta de Groq"}}]}
             """, MediaType.APPLICATION_JSON));
 
-    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
-    assertThat(client.reply(context, "cuanto gasté")).isEqualTo("respuesta de Grok");
+    assertThat(client.reply(context, "cuanto gasté")).isEqualTo("respuesta de Groq");
     geminiServer.verify();
-    grokServer.verify();
+    groqServer.verify();
   }
 
   @Test
@@ -92,14 +93,14 @@ class FallbackAdvisorChatClientTest {
         .andExpect(method(HttpMethod.POST))
         .andRespond(withServerError());
 
-    RestClient.Builder grokBuilder = RestClient.builder().baseUrl("http://grok.test");
-    MockRestServiceServer grokServer = MockRestServiceServer.bindTo(grokBuilder).build();
-    grokServer
-        .expect(requestTo("http://grok.test/chat/completions"))
+    RestClient.Builder groqBuilder = RestClient.builder().baseUrl("http://groq.test");
+    MockRestServiceServer groqServer = MockRestServiceServer.bindTo(groqBuilder).build();
+    groqServer
+        .expect(requestTo("http://groq.test/chat/completions"))
         .andExpect(method(HttpMethod.POST))
         .andRespond(withServerError());
 
-    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), grokAdapter(grokBuilder));
+    FallbackAdvisorChatClient client = new FallbackAdvisorChatClient(geminiAdapter(geminiBuilder), groqAdapter(groqBuilder));
 
     assertThatThrownBy(() -> client.reply(context, "cuanto gasté"))
         .isInstanceOf(AdvisorUnavailableException.class)
