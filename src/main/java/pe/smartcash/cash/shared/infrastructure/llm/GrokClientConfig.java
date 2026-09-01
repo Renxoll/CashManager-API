@@ -1,4 +1,4 @@
-package pe.smartcash.cash.advisor.infrastructure.llm;
+package pe.smartcash.cash.shared.infrastructure.llm;
 
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
 import org.springframework.boot.http.client.HttpClientSettings;
