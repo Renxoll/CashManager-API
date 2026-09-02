@@ -3,6 +3,7 @@ package pe.smartcash.cash.transactions.domain.services;
 import java.util.Optional;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
@@ -43,6 +44,13 @@ public interface TransactionCommandService {
    * inexistente o de otro usuario → {@code TransactionNotFoundException} (404).
    */
   void handle(SetInternalTransferCommand command);
+
+  /**
+   * Mueve una transacción a otro módulo del usuario, reasignando su categoría a una válida
+   * en el módulo destino (para gastos). Mismo criterio de error 404 que {@link
+   * #handle(UpdateTransactionCategoryCommand)} para la transacción y el módulo destino.
+   */
+  void handle(MoveTransactionToWorkspaceCommand command);
 
   /** Registro manual de un ingreso -- siempre PROCESSED de una, nunca falla por LLM porque
    * no hay extracción de por medio. */

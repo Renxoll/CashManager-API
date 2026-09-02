@@ -10,4 +10,6 @@ public interface WorkspaceCategoryJpaRepository extends JpaRepository<WorkspaceC
   List<WorkspaceCategoryJpaEntity> findAllByWorkspaceId(UUID workspaceId);
 
   List<WorkspaceCategoryJpaEntity> findAllByWorkspaceIdIn(List<UUID> workspaceIds);
+
+  List<WorkspaceCategoryJpaEntity> findAllByIdIn(List<UUID> ids);
 }

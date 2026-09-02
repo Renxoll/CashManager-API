@@ -31,7 +31,8 @@ class FinancialContextAdapter implements FinancialContextProvider {
 
   @Override
   public FinancialContext currentMonthContext(UUID userId) {
-    MonthlySummary summary = dashboardQueryService.handle(new FindMonthlySummaryQuery(userId));
+    // workspaceId null -> el asesor razona sobre el módulo "General" (gastos personales).
+    MonthlySummary summary = dashboardQueryService.handle(new FindMonthlySummaryQuery(userId, null));
     // El asesor todavía no distingue monedas en el prompt (mezclarlas en el mismo texto
     // confundiría más de lo que ayuda) -- se queda con la moneda de mayor actividad
     // (gasto+ingreso) del usuario ese mes, no necesariamente PEN. Sin ninguna transacción,

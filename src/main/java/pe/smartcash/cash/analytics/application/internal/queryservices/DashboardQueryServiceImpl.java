@@ -7,20 +7,25 @@ import java.time.YearMonth;
 import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import org.springframework.stereotype.Service;
 import pe.smartcash.cash.analytics.domain.model.queries.FindMonthlySummaryQuery;
+import pe.smartcash.cash.analytics.domain.services.CategoryBreakdownEntry;
 import pe.smartcash.cash.analytics.domain.services.CurrencySummary;
 import pe.smartcash.cash.analytics.domain.services.DashboardQueryService;
 import pe.smartcash.cash.analytics.domain.services.MonthlySummary;
 import pe.smartcash.cash.analytics.infrastructure.persistence.TransactionReadRepository;
 
 /**
- * "Mes en curso"/"mes anterior" se resuelven en UTC (mismo criterio que el resto de la app,
- * que persiste todo con {@code Clock.systemUTC()} -- ver {@code TransactionDomainConfig}): no
- * hay todavía un concepto de zona horaria por usuario, así que ambos lados quedan
- * consistentes aunque no reflejen exactamente la medianoche local del usuario en Perú.
+ * "Mes en curso"/"mes anterior" se resuelven en UTC (mismo criterio que el resto de la app).
+ * El resumen es siempre de UN módulo: el que pida el cliente por {@code workspaceId}, o el
+ * "General" del usuario si no manda ninguno. El desglose por categoría cambia de fuente según
+ * el módulo (catálogo cerrado para el General, categorías propias para uno custom) -- ver
+ * {@link TransactionReadRepository}.
  */
 @Service
 class DashboardQueryServiceImpl implements DashboardQueryService {
@@ -37,6 +42,15 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
 
   @Override
   public MonthlySummary handle(FindMonthlySummaryQuery query) {
+    Optional<UUID> defaultWorkspaceId = transactionReadRepository.findDefaultWorkspaceId(query.userId());
+    UUID workspaceId = query.workspaceId() != null ? query.workspaceId() : defaultWorkspaceId.orElse(null);
+    if (workspaceId == null) {
+      // Usuario sin módulo General todavía (no debería pasar tras la migración V14): un
+      // único resumen vacío en PEN en vez de reventar.
+      return new MonthlySummary(List.of(new CurrencySummary(DEFAULT_CURRENCY, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, List.of())));
+    }
+    boolean isDefaultWorkspace = defaultWorkspaceId.map(workspaceId::equals).orElse(false);
+
     YearMonth currentMonth = YearMonth.from(clock.instant().atZone(ZoneOffset.UTC));
     YearMonth previousMonth = currentMonth.minusMonths(1);
 
@@ -45,15 +59,12 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
     Instant nextMonthStart = startOf(currentMonth.plusMonths(1));
 
     Map<String, BigDecimal> currentExpenseByCurrency =
-        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), currentMonthStart, nextMonthStart, "EXPENSE");
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), workspaceId, currentMonthStart, nextMonthStart, "EXPENSE");
     Map<String, BigDecimal> previousExpenseByCurrency =
-        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), previousMonthStart, currentMonthStart, "EXPENSE");
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), workspaceId, previousMonthStart, currentMonthStart, "EXPENSE");
     Map<String, BigDecimal> currentIncomeByCurrency =
-        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), currentMonthStart, nextMonthStart, "INCOME");
+        transactionReadRepository.sumProcessedAmountByCurrency(query.userId(), workspaceId, currentMonthStart, nextMonthStart, "INCOME");
 
-    // Unión de las 3 monedas con algo de movimiento en cualquiera de las dos ventanas -- si
-    // no hay ninguna (usuario recién registrado, sin transacciones todavía), se muestra un
-    // único resumen en PEN vacío en vez de una lista vacía sin nada que renderizar.
     Set<String> currencies = new LinkedHashSet<>();
     currencies.addAll(currentExpenseByCurrency.keySet());
     currencies.addAll(previousExpenseByCurrency.keySet());
@@ -62,9 +73,9 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
       currencies.add(DEFAULT_CURRENCY);
     }
 
+    UUID effectiveWorkspaceId = workspaceId;
     var summaries =
         currencies.stream()
-            // PEN primero (moneda principal de la app), el resto alfabético.
             .sorted(Comparator.comparing((String c) -> !c.equals(DEFAULT_CURRENCY)).thenComparing(Comparator.naturalOrder()))
             .map(
                 currency ->
@@ -73,10 +84,17 @@ class DashboardQueryServiceImpl implements DashboardQueryService {
                         currentExpenseByCurrency.getOrDefault(currency, BigDecimal.ZERO),
                         previousExpenseByCurrency.getOrDefault(currency, BigDecimal.ZERO),
                         currentIncomeByCurrency.getOrDefault(currency, BigDecimal.ZERO),
-                        transactionReadRepository.findCategoryBreakdown(query.userId(), currentMonthStart, nextMonthStart, currency)))
+                        breakdown(query.userId(), effectiveWorkspaceId, isDefaultWorkspace, currentMonthStart, nextMonthStart, currency)))
             .toList();
 
     return new MonthlySummary(summaries);
+  }
+
+  private List<CategoryBreakdownEntry> breakdown(
+      UUID userId, UUID workspaceId, boolean isDefaultWorkspace, Instant from, Instant to, String currency) {
+    return isDefaultWorkspace
+        ? transactionReadRepository.findCategoryBreakdown(userId, workspaceId, from, to, currency)
+        : transactionReadRepository.findWorkspaceCategoryBreakdown(userId, workspaceId, from, to, currency);
   }
 
   private static Instant startOf(YearMonth yearMonth) {

@@ -54,36 +54,67 @@ class TransactionControllerIT {
   private UUID ownerUserId;
   private UUID otherUserId;
 
+  private UUID ownerWorkspaceId;
+
   @BeforeEach
   void setUp() {
     jdbcTemplate.update("DELETE FROM transactions");
+    jdbcTemplate.update("DELETE FROM workspace_categories");
+    jdbcTemplate.update("DELETE FROM workspaces");
     jdbcTemplate.update("DELETE FROM user_profiles");
 
     ownerUserId = UUID.randomUUID();
     otherUserId = UUID.randomUUID();
-    jdbcTemplate.update(
-        "INSERT INTO user_profiles (id, display_name, inbox_address, created_at, updated_at) VALUES (?, ?, ?, now(), now())",
-        ownerUserId,
-        "Dueño",
-        "alias-" + ownerUserId + "@inbox.smartcash.pe");
-    jdbcTemplate.update(
-        "INSERT INTO user_profiles (id, display_name, inbox_address, created_at, updated_at) VALUES (?, ?, ?, now(), now())",
-        otherUserId,
-        "Otro",
-        "alias-" + otherUserId + "@inbox.smartcash.pe");
+    seedUser(ownerUserId, "Dueño");
+    seedUser(otherUserId, "Otro");
+    ownerWorkspaceId = seedDefaultWorkspace(ownerUserId);
+    seedDefaultWorkspace(otherUserId);
 
     Mockito.when(tokenService.validate(BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(ownerUserId)));
     Mockito.when(tokenService.validate(OTHER_BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(otherUserId)));
+  }
+
+  private void seedUser(UUID id, String name) {
+    jdbcTemplate.update(
+        "INSERT INTO user_profiles (id, display_name, inbox_address, created_at, updated_at) VALUES (?, ?, ?, now(), now())",
+        id,
+        name,
+        "alias-" + id + "@inbox.smartcash.pe");
+  }
+
+  private UUID seedDefaultWorkspace(UUID ownerId) {
+    UUID id = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO workspaces (id, owner_id, name, color_hex, icon, is_default, created_at) VALUES (?, ?, 'General', '#8B5CF6', 'wallet', TRUE, now())",
+        id,
+        ownerId);
+    for (String[] c :
+        new String[][] {{"COMIDA", "Comida", "utensils"}, {"TRANSPORTE", "Transporte", "car"}}) {
+      jdbcTemplate.update(
+          "INSERT INTO workspace_categories (id, workspace_id, code, display_name, icon, position) VALUES (?, ?, ?, ?, ?, 0)",
+          UUID.randomUUID(),
+          id,
+          c[0],
+          c[1],
+          c[2]);
+    }
+    return id;
+  }
+
+  private UUID workspaceIdOf(UUID userId) {
+    return jdbcTemplate.queryForObject(
+        "SELECT id FROM workspaces WHERE owner_id = ? AND is_default", UUID.class, userId);
   }
 
   private UUID seedProcessedTransaction(UUID userId, String categoryCode) {
     UUID transactionId = UUID.randomUUID();
     Long categoryId = jdbcTemplate.queryForObject("SELECT id FROM categories WHERE code = ?", Long.class, categoryCode);
     jdbcTemplate.update(
-        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, created_at, processed_at) "
-            + "VALUES (?, ?, ?, ?, ?, ?, ?, 'PROCESSED', 'LLM', now(), now())",
+        "INSERT INTO transactions (id, user_id, workspace_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, created_at, processed_at) "
+            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PROCESSED', 'LLM', now(), now())",
         transactionId,
         userId,
+        workspaceIdOf(userId),
         categoryId,
         "S/24.50 en Starbucks",
         new BigDecimal("24.50"),
@@ -283,14 +314,71 @@ class TransactionControllerIT {
   private UUID seedProcessedIncomeTransaction(UUID userId) {
     UUID transactionId = UUID.randomUUID();
     jdbcTemplate.update(
-        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
-            + "VALUES (?, ?, NULL, ?, ?, ?, ?, 'PROCESSED', 'LLM', 'INCOME', now(), now())",
+        "INSERT INTO transactions (id, user_id, workspace_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 'PROCESSED', 'LLM', 'INCOME', now(), now())",
         transactionId,
         userId,
+        workspaceIdOf(userId),
         "Se abonó S/1500.00 a tu cuenta",
         new BigDecimal("1500.00"),
         "PEN",
         "Juan Pérez");
     return transactionId;
+  }
+
+  @Test
+  void movesAnExpenseToACustomModuleWithOneOfItsCategories() throws Exception {
+    UUID transactionId = seedProcessedTransaction(ownerUserId, "COMIDA");
+
+    UUID customWorkspaceId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO workspaces (id, owner_id, name, color_hex, icon, is_default, created_at) VALUES (?, ?, 'Empresa', '#22C55E', 'briefcase', FALSE, now())",
+        customWorkspaceId,
+        ownerUserId);
+    jdbcTemplate.update(
+        "INSERT INTO workspace_categories (id, workspace_id, code, display_name, icon, position) VALUES (?, ?, 'MARKETING', 'Marketing', 'megaphone', 0)",
+        UUID.randomUUID(),
+        customWorkspaceId);
+
+    mockMvc
+        .perform(
+            patch("/api/v1/transactions/{id}/workspace", transactionId)
+                .header("Authorization", "Bearer " + BEARER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"workspaceId\":\"" + customWorkspaceId + "\",\"categoryCode\":\"MARKETING\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.workspaceId").value(customWorkspaceId.toString()))
+        .andExpect(jsonPath("$.categoryCode").value("MARKETING"))
+        .andExpect(jsonPath("$.category").value("Marketing"));
+
+    UUID storedWorkspace =
+        jdbcTemplate.queryForObject("SELECT workspace_id FROM transactions WHERE id = ?", UUID.class, transactionId);
+    assertThat(storedWorkspace).isEqualTo(customWorkspaceId);
+    Object storedCategoryId =
+        jdbcTemplate.queryForObject(
+            "SELECT category_id FROM transactions WHERE id = ?", (rs, n) -> rs.getObject("category_id"), transactionId);
+    assertThat(storedCategoryId).isNull();
+  }
+
+  @Test
+  void filtersTransactionsByModule() throws Exception {
+    seedProcessedTransaction(ownerUserId, "COMIDA");
+
+    mockMvc
+        .perform(
+            get("/api/v1/transactions")
+                .param("workspaceId", ownerWorkspaceId.toString())
+                .header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(1))
+        .andExpect(jsonPath("$.items[0].workspaceId").value(ownerWorkspaceId.toString()));
+
+    mockMvc
+        .perform(
+            get("/api/v1/transactions")
+                .param("workspaceId", UUID.randomUUID().toString())
+                .header("Authorization", "Bearer " + BEARER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.totalElements").value(0));
   }
 }

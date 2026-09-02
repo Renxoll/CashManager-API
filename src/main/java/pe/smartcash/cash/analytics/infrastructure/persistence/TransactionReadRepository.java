@@ -7,25 +7,25 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import pe.smartcash.cash.analytics.domain.services.CategoryBreakdownEntry;
 
 /**
- * Read model puro: lee directo las tablas {@code transactions}/{@code categories}, sin pasar
- * por {@code TransactionRepository} ni por el agregado {@code Transaction} del contexto
- * transactions — este módulo no escribe nada ni protege invariantes, solo proyecta filas para
- * el dashboard, así que el rodeo por el agregado de escritura no aporta nada y sí cuesta
- * (carga entidades completas para sumarlas en memoria en vez de que lo haga Postgres).
+ * Read model puro: lee directo las tablas {@code transactions} / {@code categories} /
+ * {@code workspaces} / {@code workspace_categories}, sin pasar por los agregados de esos
+ * contextos -- este módulo no escribe nada ni protege invariantes, solo proyecta filas para
+ * el dashboard. Todas las consultas están acotadas por {@code workspace_id}: el dashboard
+ * siempre muestra UN módulo a la vez (el "General" por defecto, o el que pida el cliente).
+ *
+ * <p>El desglose por categoría tiene dos formas según el módulo: para el "General" se une a
+ * {@code categories} vía {@code category_id} (el catálogo cerrado que conoce el LLM); para
+ * un módulo custom se une a {@code workspace_categories} vía {@code workspace_category_id}.
  *
  * <p>{@code Instant} se convierte a {@link OffsetDateTime} justo antes de bindear: es el tipo
- * que el driver de PostgreSQL soporta sin ambigüedad contra columnas {@code timestamptz}
- * (ver columnas {@code created_at} en V1__init_schema.sql).
- *
- * <p>Pública (a diferencia del resto de los adaptadores de infraestructura del proyecto): no
- * hay un puerto de dominio intermedio que la oculte -- este read model no tiene agregado ni
- * invariantes que proteger, así que {@code DashboardQueryServiceImpl} la usa directo.
+ * que el driver de PostgreSQL soporta sin ambigüedad contra columnas {@code timestamptz}.
  */
 @Repository
 public class TransactionReadRepository {
@@ -36,15 +36,17 @@ public class TransactionReadRepository {
     this.jdbcClient = jdbcClient;
   }
 
-  /**
-   * Agrupado por moneda a propósito: S/ y $ nunca se suman en una sola cifra, cada una
-   * necesita su propio total (ver {@code CurrencySummary}). {@code type} es {@code "EXPENSE"}
-   * o {@code "INCOME"} (mismo criterio que {@code status} arriba: este read model no importa
-   * el enum del contexto transactions, solo pasa el valor como string -- no hay agregado que
-   * proteger acá, ver javadoc de la clase). Sin filas en el rango, devuelve un mapa vacío (no
-   * hace falta {@code COALESCE}: al no haber grupos, simplemente no hay filas que traer).
-   */
-  public Map<String, BigDecimal> sumProcessedAmountByCurrency(UUID userId, Instant from, Instant to, String type) {
+  /** Id del módulo "General" del usuario -- el que usa el dashboard cuando el cliente no pide uno. */
+  public Optional<UUID> findDefaultWorkspaceId(UUID userId) {
+    return jdbcClient
+        .sql("SELECT id FROM workspaces WHERE owner_id = :userId AND is_default")
+        .param("userId", userId)
+        .query(UUID.class)
+        .optional();
+  }
+
+  public Map<String, BigDecimal> sumProcessedAmountByCurrency(
+      UUID userId, UUID workspaceId, Instant from, Instant to, String type) {
     List<Object[]> rows =
         jdbcClient
             .sql(
@@ -55,11 +57,13 @@ public class TransactionReadRepository {
                   AND type = :type
                   AND internal_transfer = FALSE
                   AND user_id = :userId
+                  AND workspace_id = :workspaceId
                   AND created_at >= :from
                   AND created_at < :to
                 GROUP BY currency
                 """)
             .param("userId", userId)
+            .param("workspaceId", workspaceId)
             .param("from", toOffsetDateTime(from))
             .param("to", toOffsetDateTime(to))
             .param("type", type)
@@ -73,19 +77,12 @@ public class TransactionReadRepository {
     return byCurrency;
   }
 
-  /**
-   * El porcentaje se calcula acá, en SQL, con una window function sobre el propio resultado
-   * agrupado ({@code SUM(SUM(amount)) OVER ()} = el total del mes EN ESA MONEDA, visible en
-   * cada fila sin una segunda consulta ni un round-trip aparte): Postgres hace la división
-   * antes de que la fila salga de la base de datos, nunca en memoria del lado de la
-   * aplicación. Acotado a {@code currency} por el mismo motivo que {@link
-   * #sumProcessedAmountByCurrency} -- mezclar monedas en el mismo 100% no tendría sentido.
-   */
-  public List<CategoryBreakdownEntry> findCategoryBreakdown(UUID userId, Instant from, Instant to, String currency) {
+  /** Desglose del módulo "General": categorías del catálogo cerrado ({@code categories}). */
+  public List<CategoryBreakdownEntry> findCategoryBreakdown(UUID userId, UUID workspaceId, Instant from, Instant to, String currency) {
     return jdbcClient
         .sql(
             """
-            SELECT c.id AS category_id,
+            SELECT c.id::text AS category_id,
                    c.display_name AS category_name,
                    SUM(t.amount) AS amount,
                    ROUND(SUM(t.amount) * 100.0 / SUM(SUM(t.amount)) OVER (), 2) AS percentage
@@ -95,6 +92,7 @@ public class TransactionReadRepository {
               AND t.type = 'EXPENSE'
               AND t.internal_transfer = FALSE
               AND t.user_id = :userId
+              AND t.workspace_id = :workspaceId
               AND t.currency = :currency
               AND t.created_at >= :from
               AND t.created_at < :to
@@ -102,13 +100,49 @@ public class TransactionReadRepository {
             ORDER BY amount DESC
             """)
         .param("userId", userId)
+        .param("workspaceId", workspaceId)
         .param("from", toOffsetDateTime(from))
         .param("to", toOffsetDateTime(to))
         .param("currency", currency)
         .query(
             (rs, rowNum) ->
                 new CategoryBreakdownEntry(
-                    rs.getLong("category_id"), rs.getString("category_name"), rs.getBigDecimal("amount"), rs.getBigDecimal("percentage")))
+                    rs.getString("category_id"), rs.getString("category_name"), rs.getBigDecimal("amount"), rs.getBigDecimal("percentage")))
+        .list();
+  }
+
+  /** Desglose de un módulo custom: categorías propias ({@code workspace_categories}). */
+  public List<CategoryBreakdownEntry> findWorkspaceCategoryBreakdown(
+      UUID userId, UUID workspaceId, Instant from, Instant to, String currency) {
+    return jdbcClient
+        .sql(
+            """
+            SELECT wc.id::text AS category_id,
+                   wc.display_name AS category_name,
+                   SUM(t.amount) AS amount,
+                   ROUND(SUM(t.amount) * 100.0 / SUM(SUM(t.amount)) OVER (), 2) AS percentage
+            FROM transactions t
+            JOIN workspace_categories wc ON wc.id = t.workspace_category_id
+            WHERE t.status = 'PROCESSED'
+              AND t.type = 'EXPENSE'
+              AND t.internal_transfer = FALSE
+              AND t.user_id = :userId
+              AND t.workspace_id = :workspaceId
+              AND t.currency = :currency
+              AND t.created_at >= :from
+              AND t.created_at < :to
+            GROUP BY wc.id, wc.display_name
+            ORDER BY amount DESC
+            """)
+        .param("userId", userId)
+        .param("workspaceId", workspaceId)
+        .param("from", toOffsetDateTime(from))
+        .param("to", toOffsetDateTime(to))
+        .param("currency", currency)
+        .query(
+            (rs, rowNum) ->
+                new CategoryBreakdownEntry(
+                    rs.getString("category_id"), rs.getString("category_name"), rs.getBigDecimal("amount"), rs.getBigDecimal("percentage")))
         .list();
   }
 

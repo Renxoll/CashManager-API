@@ -13,4 +13,6 @@ public interface TransactionJpaRepository extends JpaRepository<TransactionJpaEn
   List<TransactionJpaEntity> findAllByStatus(TransactionStatus status);
 
   Page<TransactionJpaEntity> findAllByUserId(UUID userId, Pageable pageable);
+
+  Page<TransactionJpaEntity> findAllByUserIdAndWorkspaceId(UUID userId, UUID workspaceId, Pageable pageable);
 }

@@ -1,11 +1,14 @@
 package pe.smartcash.cash.workspaces.infrastructure.persistence;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.stereotype.Repository;
 import pe.smartcash.cash.workspaces.domain.model.aggregates.Workspace;
+import pe.smartcash.cash.workspaces.domain.model.aggregates.WorkspaceCategory;
 import pe.smartcash.cash.workspaces.domain.model.aggregates.WorkspaceRepository;
 import pe.smartcash.cash.workspaces.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.workspaces.domain.model.valueobjects.WorkspaceCategoryId;
 import pe.smartcash.cash.workspaces.domain.model.valueobjects.WorkspaceId;
 import pe.smartcash.cash.workspaces.infrastructure.persistence.jpa.repositories.WorkspaceCategoryJpaRepository;
 import pe.smartcash.cash.workspaces.infrastructure.persistence.jpa.repositories.WorkspaceJpaRepository;
@@ -68,5 +71,24 @@ class WorkspaceRepositoryAdapter implements WorkspaceRepository {
   @Override
   public boolean existsDefaultForOwner(UserId ownerId) {
     return workspaceJpaRepository.existsByOwnerIdAndIsDefaultTrue(ownerId.value());
+  }
+
+  @Override
+  public List<WorkspaceCategory> findCategoriesByIds(Collection<WorkspaceCategoryId> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    var uuids = ids.stream().map(WorkspaceCategoryId::value).toList();
+    return categoryJpaRepository.findAllByIdIn(uuids).stream()
+        .map(
+            c ->
+                WorkspaceCategory.rehydrate(
+                    WorkspaceCategoryId.of(c.getId()),
+                    c.getCode(),
+                    c.getDisplayName(),
+                    c.getIcon(),
+                    c.getPosition(),
+                    c.isArchived()))
+        .toList();
   }
 }

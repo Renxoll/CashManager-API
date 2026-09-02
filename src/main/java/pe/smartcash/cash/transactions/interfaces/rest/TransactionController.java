@@ -15,18 +15,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
+import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionByIdQuery;
 import pe.smartcash.cash.transactions.domain.model.queries.FindTransactionsByUserQuery;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.transactions.domain.services.TransactionCommandService;
 import pe.smartcash.cash.transactions.domain.services.TransactionDetail;
 import pe.smartcash.cash.transactions.domain.services.TransactionQueryService;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.CategoryResource;
+import pe.smartcash.cash.transactions.interfaces.rest.resources.MoveTransactionResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualIncomeResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.SetInternalTransferResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionPageResource;
@@ -65,11 +66,13 @@ class TransactionController {
   ResponseEntity<TransactionPageResource> list(
       @AuthenticationPrincipal String authenticatedUserId,
       @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+      @RequestParam(defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
+      @RequestParam(required = false) UUID workspaceId) {
     int clampedSize = Math.max(1, Math.min(size, MAX_PAGE_SIZE));
     int clampedPage = Math.max(0, page);
     var result =
-        transactionQueryService.handle(new FindTransactionsByUserQuery(UserId.parse(authenticatedUserId), clampedPage, clampedSize));
+        transactionQueryService.handle(
+            new FindTransactionsByUserQuery(UserId.parse(authenticatedUserId), clampedPage, clampedSize, workspaceId));
     var items = result.items().stream().map(TransactionResourceFromEntityAssembler::toResourceFromEntity).toList();
     return ResponseEntity.ok(new TransactionPageResource(items, result.page(), result.size(), result.totalElements()));
   }
@@ -90,11 +93,24 @@ class TransactionController {
       @Valid @RequestBody UpdateTransactionCategoryResource resource) {
     TransactionId id = TransactionId.of(transactionId);
     UserId userId = UserId.parse(authenticatedUserId);
-    // valueOf estricto a propósito: a diferencia de CategoryCode.fromCode (que usa el
-    // parseo tolerante del LLM y cae a OTROS ante cualquier basura), acá un código inválido
-    // que mande el cliente es un error del caller y debe volver 400, no colarse como OTROS.
-    CategoryCode categoryCode = CategoryCode.valueOf(resource.categoryCode().trim().toUpperCase());
-    transactionCommandService.handle(new UpdateTransactionCategoryCommand(id, userId, categoryCode));
+    // El code llega crudo: el caso de uso lo valida contra el catálogo cerrado (módulo
+    // General) o contra las categorías del módulo custom, según dónde viva la transacción.
+    transactionCommandService.handle(new UpdateTransactionCategoryCommand(id, userId, resource.categoryCode()));
+    TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
+    return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
+  }
+
+  /** Mueve la transacción a otro módulo del usuario. Para un gasto, {@code categoryCode} es
+   * obligatorio y debe ser una categoría válida del módulo destino. */
+  @PatchMapping("/{transactionId}/workspace")
+  ResponseEntity<TransactionResource> moveToWorkspace(
+      @PathVariable UUID transactionId,
+      @AuthenticationPrincipal String authenticatedUserId,
+      @Valid @RequestBody MoveTransactionResource resource) {
+    TransactionId id = TransactionId.of(transactionId);
+    UserId userId = UserId.parse(authenticatedUserId);
+    transactionCommandService.handle(
+        new MoveTransactionToWorkspaceCommand(id, userId, resource.workspaceId(), resource.categoryCode()));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
   }
@@ -117,7 +133,12 @@ class TransactionController {
     UserId userId = UserId.parse(authenticatedUserId);
     TransactionId id =
         transactionCommandService.handle(
-            new RecordManualIncomeCommand(userId, resource.amount(), resource.currency().trim().toUpperCase(), resource.source().trim()));
+            new RecordManualIncomeCommand(
+                userId,
+                resource.amount(),
+                resource.currency().trim().toUpperCase(),
+                resource.source().trim(),
+                resource.workspaceId()));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.status(HttpStatus.CREATED).body(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
   }

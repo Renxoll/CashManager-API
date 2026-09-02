@@ -14,4 +14,5 @@ public record TransactionResource(
     String category,
     String type,
     boolean internalTransfer,
-    Instant createdAt) {}
+    Instant createdAt,
+    UUID workspaceId) {}
