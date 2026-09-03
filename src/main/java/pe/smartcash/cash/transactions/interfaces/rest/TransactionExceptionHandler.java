@@ -12,6 +12,7 @@ import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 import pe.smartcash.cash.transactions.domain.exception.PendingSenderNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
+import pe.smartcash.cash.transactions.domain.exception.WorkspaceNotAccessibleException;
 
 /**
  * Mapeo de excepciones propias de este bounded context; el resto lo cubre el manejador
@@ -38,6 +39,12 @@ class TransactionExceptionHandler {
 
   @ExceptionHandler(PendingSenderNotFoundException.class)
   ResponseEntity<ApiError> handlePendingSenderNotFound(PendingSenderNotFoundException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(WorkspaceNotAccessibleException.class)
+  ResponseEntity<ApiError> handleWorkspaceNotAccessible(WorkspaceNotAccessibleException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
   }

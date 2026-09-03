@@ -14,6 +14,8 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceCategoryId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceId;
 
 /**
  * Aggregate root del bounded context Transactions. El único punto de entrada para mutar su
@@ -35,6 +37,13 @@ public final class Transaction {
   private Merchant merchant;
   private CategoryCode categoryCode;
   private TransactionType type;
+  /** Módulo en el que vive la transacción. En la ingesta automática es siempre el módulo
+   * "General" del usuario; el usuario puede moverla a otro con {@link #moveToWorkspace}. */
+  private WorkspaceId workspaceId;
+  /** Categoría cuando la transacción está en un módulo custom (NO el General). Mutuamente
+   * excluyente con {@link #categoryCode}: en el General manda {@code categoryCode}, en un
+   * módulo custom manda este id, y en un INGRESO ambos van null. */
+  private WorkspaceCategoryId workspaceCategoryId;
   private ExtractionSource extractionSource;
   private String errorMessage;
   private Instant processedAt;
@@ -61,8 +70,10 @@ public final class Transaction {
    * TransactionReceived} para que la categorización (que depende del LLM) se dispare async,
    * fuera del ciclo request/response.
    */
-  public static Transaction receive(TransactionId id, UserId userId, String rawText, Instant receivedAt) {
+  public static Transaction receive(
+      TransactionId id, UserId userId, String rawText, Instant receivedAt, WorkspaceId workspaceId) {
     Transaction transaction = new Transaction(id, userId, rawText, receivedAt, TransactionStatus.PENDING);
+    transaction.workspaceId = Objects.requireNonNull(workspaceId, "workspaceId");
     transaction.domainEvents.add(new TransactionReceived(id, userId, rawText, receivedAt));
     return transaction;
   }
@@ -76,12 +87,20 @@ public final class Transaction {
    * pantalla, no necesita disparar una notificación push sobre algo que él mismo acaba de
    * escribir.
    */
-  public static Transaction recordManualIncome(TransactionId id, UserId userId, String rawText, Money money, Merchant source, Instant recordedAt) {
+  public static Transaction recordManualIncome(
+      TransactionId id,
+      UserId userId,
+      String rawText,
+      Money money,
+      Merchant source,
+      Instant recordedAt,
+      WorkspaceId workspaceId) {
     Transaction transaction = new Transaction(id, userId, rawText, recordedAt, TransactionStatus.PROCESSED);
     transaction.money = Objects.requireNonNull(money, "money");
     transaction.merchant = Objects.requireNonNull(source, "source");
     transaction.type = TransactionType.INCOME;
     transaction.categoryCode = null;
+    transaction.workspaceId = Objects.requireNonNull(workspaceId, "workspaceId");
     transaction.extractionSource = ExtractionSource.MANUAL;
     transaction.processedAt = recordedAt;
     return transaction;
@@ -101,7 +120,9 @@ public final class Transaction {
       ExtractionSource extractionSource,
       String errorMessage,
       Instant processedAt,
-      boolean internalTransfer) {
+      boolean internalTransfer,
+      WorkspaceId workspaceId,
+      WorkspaceCategoryId workspaceCategoryId) {
     Transaction transaction = new Transaction(id, userId, rawText, createdAt, status);
     transaction.money = money;
     transaction.merchant = merchant;
@@ -111,6 +132,8 @@ public final class Transaction {
     transaction.errorMessage = errorMessage;
     transaction.processedAt = processedAt;
     transaction.internalTransfer = internalTransfer;
+    transaction.workspaceId = workspaceId;
+    transaction.workspaceCategoryId = workspaceCategoryId;
     return transaction;
   }
 
@@ -173,6 +196,48 @@ public final class Transaction {
       throw new IllegalStateException("No se puede recategorizar una transacción de tipo " + this.type + " (solo aplica a EXPENSE)");
     }
     this.categoryCode = Objects.requireNonNull(newCategoryCode, "newCategoryCode");
+    this.workspaceCategoryId = null;
+  }
+
+  /**
+   * Corrección de categoría cuando la transacción está en un módulo custom -- la categoría
+   * es un id de {@code workspace_categories}, no un {@link CategoryCode} del catálogo
+   * cerrado. Contraparte de {@link #recategorize} para el módulo General; el caso de uso
+   * elige cuál llamar según el módulo actual de la transacción.
+   */
+  public void recategorizeWithin(WorkspaceCategoryId newCategory) {
+    requireStatus(TransactionStatus.PROCESSED, "recategorizar");
+    if (this.type != TransactionType.EXPENSE) {
+      throw new IllegalStateException("No se puede recategorizar una transacción de tipo " + this.type + " (solo aplica a EXPENSE)");
+    }
+    this.workspaceCategoryId = Objects.requireNonNull(newCategory, "newCategory");
+    this.categoryCode = null;
+  }
+
+  /**
+   * Mueve la transacción a otro módulo. Solo aplica sobre una transacción ya resuelta
+   * (PROCESSED). Para un GASTO hay que indicar exactamente una categoría destino: un
+   * {@link CategoryCode} si el módulo destino es el General, o un {@link WorkspaceCategoryId}
+   * si es un módulo custom -- el caso de uso resuelve cuál según el módulo. Para un INGRESO
+   * ambas van null (los ingresos no se categorizan). No emite evento de dominio: es una
+   * corrección síncrona que el usuario ve al toque, igual que {@link #recategorize}.
+   */
+  public void moveToWorkspace(WorkspaceId targetWorkspace, CategoryCode generalCategory, WorkspaceCategoryId customCategory) {
+    requireStatus(TransactionStatus.PROCESSED, "mover de módulo");
+    Objects.requireNonNull(targetWorkspace, "targetWorkspace");
+    if (this.type == TransactionType.EXPENSE) {
+      boolean bothOrNeither = (generalCategory == null) == (customCategory == null);
+      if (bothOrNeither) {
+        throw new IllegalArgumentException(
+            "un gasto movido de módulo necesita exactamente una categoría destino (General o custom)");
+      }
+      this.categoryCode = generalCategory;
+      this.workspaceCategoryId = customCategory;
+    } else {
+      this.categoryCode = null;
+      this.workspaceCategoryId = null;
+    }
+    this.workspaceId = targetWorkspace;
   }
 
   /**
@@ -242,6 +307,14 @@ public final class Transaction {
 
   public TransactionType type() {
     return type;
+  }
+
+  public WorkspaceId workspaceId() {
+    return workspaceId;
+  }
+
+  public WorkspaceCategoryId workspaceCategoryId() {
+    return workspaceCategoryId;
   }
 
   public ExtractionSource extractionSource() {

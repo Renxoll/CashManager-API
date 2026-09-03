@@ -8,7 +8,8 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 
 - **Java 21 / Spring Boot 4.1.0**, arquitectura **DDD en 4 capas** (`domain`,
   `application`, `infrastructure`, `interfaces`) organizada por **bounded contexts**
-  (`iam`, `profile`, `subscription`, `transactions`).
+  (`iam`, `profile`, `subscription`, `transactions`, `workspaces`, `analytics`,
+  `groups`, `gmailsync`, `advisor`).
 - **Spring Security** (stateless, Bearer token) protege toda la API salvo `/api/v1/iam/**`
   y `/actuator/health`.
 - **PostgreSQL** (persistencia, vía Flyway) + **Redis** (cache comercio → categoría).
@@ -25,9 +26,14 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 |---|---|
 | **`iam`** | Protección de la API: registro/login, hasheo de contraseñas (BCrypt), emisión y validación del Bearer token. |
 | **`profile`** | Registro y guardado de perfiles de usuario: nombre visible, token FCM para notificaciones. |
-| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. |
-| **`transactions`** | El dominio core: ingesta y categorización de gastos (ver flujo abajo). |
-| `shared` | Plumbing técnico transversal (no es un bounded context): `ApiError`, el `@RestControllerAdvice` catch-all. |
+| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Stripe Checkout (webhook `checkout.session.completed`). |
+| **`transactions`** | El dominio core: ingesta y categorización de gastos (ver flujo abajo). Cada transacción vive en un **módulo** (ver `workspaces`). |
+| **`workspaces`** | "Módulos": el usuario separa sus gastos en varios contenedores renombrables y personalizables (color/ícono) — p. ej. "Empresa", "Hijo", "Inversiones" — cada uno con su propia lista de categorías, aparte del módulo "General" al que cae la ingesta automática. Ver [Módulos](#módulos-workspaces) abajo. |
+| **`analytics`** | Read model para el dashboard: resumen mensual de gasto/ingreso por moneda y desglose por categoría, acotado a un módulo. |
+| **`groups`** | Gastos compartidos estilo Splitwise: grupos con otros usuarios reales, división en partes iguales, saldos y simplificación de deudas. |
+| **`gmailsync`** | Conexión OAuth2 a la bandeja de Gmail del usuario para leer sus notificaciones bancarias directo (alternativa a reenviar correos a mano). |
+| **`advisor`** | Asesor financiero conversacional (LLM) sobre el contexto financiero del mes del usuario. |
+| `shared` | Plumbing técnico transversal (no es un bounded context): `ApiError`, el `@RestControllerAdvice` catch-all, rate limiting, observabilidad. |
 
 Los tres primeros nacieron de dividir lo que originalmente era un único contexto
 `users` — cada uno tiene hoy su propia tabla y su propio ciclo de vida; solo comparten
@@ -147,6 +153,55 @@ Comercio") probablemente no matchee ese texto — no es un problema (cae al LLM 
 todos modos), solo significa que el atajo de Redis por comercio no aplica para esos
 casos.
 
+## Módulos (workspaces)
+
+Un **módulo** es un contenedor de transacciones que el usuario nombra y personaliza
+(color + ícono). Todo usuario tiene un módulo **"General"** (`isDefault`) que se crea
+solo en el alta de cuenta (`AccountRegisteredEvent` de IAM, mismo hilo/transacción que el
+registro del perfil) y **no se puede archivar** — es el destino de la ingesta automática
+por correo. El usuario crea los módulos custom que quiera ("Empresa", "Hijo",
+"Inversiones", …), cada uno con su **propia lista de categorías** editable.
+
+**Modelo de categorías (híbrido, para no tocar el pipeline del LLM):**
+
+- Módulo **General** → la categoría es un `CategoryCode` del catálogo cerrado (tabla
+  `categories`, la misma enumeración que exige el Structured Output del LLM). El flujo de
+  extracción, el cache Redis comercio→categoría y la política de notificación quedan
+  **intactos**.
+- Módulo **custom** → la categoría es una fila de `workspace_categories` (id UUID),
+  referenciada desde `transactions.workspace_category_id`. El código (`code`) se deriva en
+  el backend del rótulo que escribe el usuario (slug en mayúsculas, sin tildes) y es
+  único **dentro** del módulo.
+- Al **mover** una transacción de módulo se le reasigna la categoría al vocabulario del
+  módulo destino (obligatorio para un gasto; los ingresos no se categorizan).
+
+Sin FK desde `transactions` hacia `workspaces`/`workspace_categories` (misma regla de
+autonomía de contexto que el resto del repo); la integridad la garantiza el ACL
+`WorkspaceDirectory` en `transactions.application`.
+
+### Endpoints — `/api/v1/workspaces` (todos requieren Bearer; el `userId` sale del principal)
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/v1/workspaces` | Módulos activos del usuario (el "General" primero), cada uno con sus categorías. |
+| `POST` | `/api/v1/workspaces` | Crea un módulo custom. Body: `{ "name", "colorHex"?, "icon"? }` (`colorHex` `#RRGGBB`, defaults `#8B5CF6` / `wallet`). Se siembra con las 8 categorías base como punto de partida. → `201`. |
+| `GET` | `/api/v1/workspaces/{id}` | Un módulo. `404` si no existe o es de otro usuario. |
+| `PATCH` | `/api/v1/workspaces/{id}` | Renombra y/o repersonaliza. Body parcial: `{ "name"?, "colorHex"?, "icon"? }`. |
+| `DELETE` | `/api/v1/workspaces/{id}` | Archiva el módulo (soft delete; las transacciones no se borran). `409` si es el "General". → `204`. |
+| `POST` | `/api/v1/workspaces/{id}/categories` | Agrega una categoría. Body: `{ "displayName", "icon"? }`. `409` si el `code` derivado ya existe. → `201` con el módulo. |
+| `PATCH` | `/api/v1/workspaces/{id}/categories/{categoryId}` | Renombra una categoría. Body: `{ "displayName", "icon"? }`. |
+| `DELETE` | `/api/v1/workspaces/{id}/categories/{categoryId}` | Archiva una categoría. `409` si es la última activa del módulo. → `200` con el módulo. |
+
+### Cómo el resto de la API pasó a ser "por módulo"
+
+| Endpoint | Cambio |
+|---|---|
+| `GET /api/v1/transactions` | Nuevo query param opcional `?workspaceId=<uuid>` — filtra al módulo indicado; ausente = todos los módulos del usuario. La respuesta incluye ahora `workspaceId` por transacción, y `category`/`categoryCode` se resuelven contra el catálogo del módulo correspondiente. |
+| `PATCH /api/v1/transactions/{id}/category` | El `categoryCode` del body ahora se valida contra el vocabulario del módulo **actual** de la transacción (catálogo cerrado si es el General, categorías del módulo si es custom). Un código inválido → `400`. |
+| `PATCH /api/v1/transactions/{id}/workspace` | **Nuevo.** Mueve la transacción a otro módulo. Body: `{ "workspaceId": "<uuid>", "categoryCode"?: "<code>" }` — `categoryCode` obligatorio para un gasto (categoría válida en el módulo destino), ignorado para un ingreso. Módulo destino inexistente o ajeno → `404`. |
+| `POST /api/v1/transactions/income` | Body admite `"workspaceId"?` opcional (default: módulo "General"). |
+| `GET /api/v1/analytics/monthly-summary` | Nuevo query param opcional `?workspaceId=<uuid>` — el resumen es siempre de **un** módulo (el indicado, o el "General" si se omite). El desglose por categoría se une a `categories` para el General y a `workspace_categories` para un módulo custom. `breakdown[].categoryId` es ahora un string (id bigint del catálogo o UUID de categoría de módulo). |
+
 ## Arquitectura DDD
 
 Cada bounded context tiene sus 4 capas. `domain` define **contratos** (agregados, value
@@ -195,18 +250,40 @@ pe.smartcash.cash
 │   │   ├── services/            SubscriptionCommandService, SubscriptionQueryService (+ SubscriptionDetail)
 │   │   └── exception/           ActiveSubscriptionAlreadyExistsException, SubscriptionNotFoundException
 │   ├── application/internal/{commandservices,queryservices}/  *Impl
-│   ├── infrastructure/persistence/   JPA entity + mapper + adapter (tabla subscriptions)
-│   └── interfaces/rest/   SubscriptionController + resources/transform
+│   ├── infrastructure/
+│   │   ├── persistence/   JPA entity + mapper + adapter (tabla subscriptions)
+│   │   └── payment/       StripePaymentGatewayAdapter (único que importa com.stripe.*) + config
+│   └── interfaces/rest/   SubscriptionController + StripeWebhookController + resources/transform
+│
+├── workspaces/                            [módulos: contenedores de gasto por usuario]
+│   ├── domain/
+│   │   ├── model/aggregates/    Workspace (aggregate root, con la colección WorkspaceCategory)
+│   │   │                        + WorkspaceRepository
+│   │   ├── model/valueobjects/  WorkspaceId, WorkspaceCategoryId, UserId, CategoryTemplate,
+│   │   │                        StarterCategories (las 8 base)
+│   │   ├── model/commands/      CreateWorkspaceCommand, UpdateWorkspaceCommand,
+│   │   │                        ArchiveWorkspaceCommand, {Add,Update,Archive}WorkspaceCategoryCommand
+│   │   ├── model/queries/       FindWorkspacesByOwnerQuery, FindWorkspaceByIdQuery
+│   │   ├── services/            WorkspaceCommandService, WorkspaceQueryService (+ read-models)
+│   │   └── exception/           WorkspaceNotFoundException, DefaultWorkspaceProtectedException,
+│   │                            DuplicateWorkspaceCategoryException, LastActiveWorkspaceCategoryException, …
+│   ├── application/internal/{commandservices,queryservices}/  *Impl (+ CategoryCodeFactory: rótulo → code)
+│   ├── infrastructure/persistence/   JPA entities + mapper + adapter (workspaces + workspace_categories)
+│   └── interfaces/
+│       ├── rest/     WorkspaceController + resources/transform + exception handler local
+│       └── events/   AccountRegisteredWorkspaceProvisioner (crea el módulo "General" en el alta)
 │
 ├── transactions/                          [bounded context core]
 │   ├── domain/
 │   │   ├── model/
 │   │   │   ├── aggregates/   Transaction (aggregate root) + TransactionRepository
 │   │   │   ├── valueobjects/ TransactionId, UserId, Money, Merchant, CategoryCode,
-│   │   │   │                 TransactionStatus, ExtractionSource
-│   │   │   ├── commands/     IngestBankNotificationCommand
-│   │   │   ├── queries/      FindTransactionByIdQuery
-│   │   │   └── events/       TransactionCategorized
+│   │   │   │                 TransactionStatus, ExtractionSource, TransactionType,
+│   │   │   │                 WorkspaceId, WorkspaceCategoryId
+│   │   │   ├── commands/     IngestBankNotificationCommand, UpdateTransactionCategoryCommand,
+│   │   │   │                 MoveTransactionToWorkspaceCommand, RecordManualIncomeCommand, …
+│   │   │   ├── queries/      FindTransactionByIdQuery, FindTransactionsByUserQuery
+│   │   │   └── events/       TransactionCategorized, TransactionReceived
 │   │   ├── services/         TransactionCommandService, TransactionQueryService (contratos)
 │   │   │                     + TransactionDetail (read-model) + el resto de puertos:
 │   │   │                     CategoryCatalog, TransactionExtractionService, MerchantCategoryCache,
@@ -219,7 +296,9 @@ pe.smartcash.cash
 │   │       ├── commandservices/   TransactionCommandServiceImpl
 │   │       ├── queryservices/     TransactionQueryServiceImpl
 │   │       └── outboundservices/
-│   │           └── acl/           UserDirectoryAdapter — Anti-Corruption Layer hacia Profile
+│   │           └── acl/           UserDirectoryAdapter (ACL → Profile),
+│   │                              WorkspaceDirectoryAdapter (ACL → Workspaces: módulo por
+│   │                              defecto, validación de categoría, resolución de nombres)
 │   ├── infrastructure/
 │   │   ├── persistence/  JPA entities + mappers + adapters (Transaction, Category)
 │   │   ├── llm/           Adaptador OpenAI Chat Completions + prompt + DTOs de cable
@@ -315,32 +394,56 @@ Migraciones Flyway en `src/main/resources/db/migration/`:
 - **`db/migration/dev/V4__seed_dev_credentials.sql`**: credenciales del mismo usuario
   demo (`demo@smartcash.pe` / `demo1234`, hash BCrypt precalculado) para poder probar
   sign-in sin pasos extra. Solo perfil `dev`.
+- **`V5`–`V13`**: columnas y tablas de los contextos que se sumaron después
+  (`transactions.type` gasto/ingreso y `internal_transfer`, `extraction_source = MANUAL`,
+  buzón de ingesta en `user_profiles`, `gmail_connections`, `pending_senders` +
+  `user_trusted_senders`, `event_publication` de Spring Modulith, esquema de `groups`).
+- **`V14__create_workspaces_schema.sql`**: tablas `workspaces` + `workspace_categories`;
+  backfill de un módulo "General" por cada usuario existente, sembrado con una copia de
+  las 8 categorías del catálogo global. Un índice único parcial (`WHERE is_default`)
+  refuerza "un solo módulo General por usuario".
+- **`V15__add_workspace_to_transactions.sql`**: `transactions.workspace_id` (NOT NULL,
+  backfill al módulo General del dueño) + `transactions.workspace_category_id` (categoría
+  de módulo custom, NULL para el General). Sin FK hacia `workspaces` (autonomía de
+  contexto).
 
 ```sql
 transactions (
   id UUID PK,
   user_id UUID FK -> user_profiles,
-  category_id BIGINT FK -> categories NULL,
+  workspace_id UUID NOT NULL,          -- módulo (sin FK: contexto workspaces)
+  category_id BIGINT FK -> categories NULL,   -- categoría en el módulo "General"
+  workspace_category_id UUID NULL,     -- categoría en un módulo custom (mutuamente excluyente con category_id)
   raw_text TEXT NOT NULL,      -- nunca se pierde, ni cuando falla la extracción
   amount NUMERIC(12,2),
   currency CHAR(3),
   merchant VARCHAR(150),
   status VARCHAR(20) CHECK (PENDING|PROCESSED|FAILED),
-  extraction_source VARCHAR(20) CHECK (LLM|CACHE),
+  type VARCHAR(10) CHECK (EXPENSE|INCOME),
+  extraction_source VARCHAR(20) CHECK (LLM|CACHE|MANUAL),
+  internal_transfer BOOLEAN NOT NULL DEFAULT FALSE,
   error_message TEXT,
   created_at TIMESTAMPTZ,
   processed_at TIMESTAMPTZ
 )
 
+workspaces (id UUID PK, owner_id UUID, name VARCHAR(60), color_hex CHAR(7),
+            icon VARCHAR(40), is_default BOOLEAN, created_at, archived_at NULL)
+workspace_categories (id UUID PK, workspace_id UUID FK -> workspaces, code VARCHAR(40),
+                      display_name VARCHAR(60), icon VARCHAR(40), position INT,
+                      archived BOOLEAN, UNIQUE (workspace_id, code))
+
 credentials (id UUID PK, email VARCHAR UNIQUE, hashed_password VARCHAR, created_at)
-user_profiles (id UUID PK, display_name VARCHAR, fcm_token TEXT, created_at, updated_at)
+user_profiles (id UUID PK, display_name VARCHAR, fcm_token TEXT, inbox_address VARCHAR,
+               created_at, updated_at)
 subscriptions (id UUID PK, user_id UUID, plan_code VARCHAR, status VARCHAR,
                started_at, renews_at, canceled_at)
 ```
 
-No hay FKs entre `credentials`, `user_profiles` y `subscriptions`: cada tabla pertenece a
-un bounded context distinto y solo comparten el UUID por convención — es la misma regla
-de autonomía de contexto aplicada a nivel de esquema.
+No hay FKs entre `credentials`, `user_profiles`, `subscriptions` ni `workspaces`: cada
+tabla pertenece a un bounded context distinto y solo comparten el UUID por convención — es
+la misma regla de autonomía de contexto aplicada a nivel de esquema (`workspace_categories`
+sí tiene FK a `workspaces` porque son un mismo agregado).
 
 ## Prompt de extracción
 
@@ -499,6 +602,7 @@ corriendo la app (no por inspección de código):
   cada `domain.services` y un test `ApplicationModules.of(CashApplication.class).verify()`)
   para que la regla "cada contexto solo habla con otro vía su ACL" quede garantizada en
   tiempo de compilación/test, no solo por disciplina de código.
-- Un flujo de "onboarding" orquestado (IAM emite el evento `AccountRegistered` → Profile
-  crea el perfil automáticamente) para no tener que llamar a `/iam/sign-up` y
-  `/profiles` por separado.
+- ~~Un flujo de "onboarding" orquestado (IAM emite el evento `AccountRegistered` → Profile
+  crea el perfil automáticamente)~~ — **hecho**: `iam` emite `AccountRegisteredEvent` y
+  tanto `profile` (crea el perfil + buzón de ingesta) como `workspaces` (crea el módulo
+  "General") lo escuchan de forma síncrona en la misma transacción del sign-up.

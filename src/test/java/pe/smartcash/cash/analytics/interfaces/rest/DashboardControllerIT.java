@@ -46,10 +46,13 @@ class DashboardControllerIT {
   @MockitoBean private TokenService tokenService;
 
   private UUID userId;
+  private UUID workspaceId;
 
   @BeforeEach
   void setUp() {
     jdbcTemplate.update("DELETE FROM transactions");
+    jdbcTemplate.update("DELETE FROM workspace_categories");
+    jdbcTemplate.update("DELETE FROM workspaces");
     jdbcTemplate.update("DELETE FROM user_profiles");
 
     userId = UUID.randomUUID();
@@ -58,20 +61,27 @@ class DashboardControllerIT {
         userId,
         "Usuario de Test",
         "alias-" + userId + "@inbox.smartcash.pe");
+    workspaceId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO workspaces (id, owner_id, name, color_hex, icon, is_default, created_at) VALUES (?, ?, 'General', '#8B5CF6', 'wallet', TRUE, now())",
+        workspaceId,
+        userId);
     Mockito.when(tokenService.validate(BEARER_TOKEN)).thenReturn(Optional.of(UserId.of(userId)));
 
     Long categoryId = jdbcTemplate.queryForObject("SELECT id FROM categories WHERE code = 'COMIDA'", Long.class);
     jdbcTemplate.update(
-        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
-            + "VALUES (?, ?, ?, 'S/50 en restaurante', 50.00, 'PEN', 'Restaurante', 'PROCESSED', 'LLM', 'EXPENSE', now(), now())",
+        "INSERT INTO transactions (id, user_id, workspace_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, ?, ?, 'S/50 en restaurante', 50.00, 'PEN', 'Restaurante', 'PROCESSED', 'LLM', 'EXPENSE', now(), now())",
         UUID.randomUUID(),
         userId,
+        workspaceId,
         categoryId);
     jdbcTemplate.update(
-        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
-            + "VALUES (?, ?, NULL, 'Se abonó S/1500', 1500.00, 'PEN', 'Empleador', 'PROCESSED', 'LLM', 'INCOME', now(), now())",
+        "INSERT INTO transactions (id, user_id, workspace_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, ?, NULL, 'Se abonó S/1500', 1500.00, 'PEN', 'Empleador', 'PROCESSED', 'LLM', 'INCOME', now(), now())",
         UUID.randomUUID(),
-        userId);
+        userId,
+        workspaceId);
   }
 
   @Test
@@ -95,10 +105,11 @@ class DashboardControllerIT {
   void monthlySummaryKeepsCurrenciesSeparate() throws Exception {
     Long categoryId = jdbcTemplate.queryForObject("SELECT id FROM categories WHERE code = 'SERVICIOS'", Long.class);
     jdbcTemplate.update(
-        "INSERT INTO transactions (id, user_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
-            + "VALUES (?, ?, ?, 'Netflix $9.99', 9.99, 'USD', 'Netflix', 'PROCESSED', 'LLM', 'EXPENSE', now(), now())",
+        "INSERT INTO transactions (id, user_id, workspace_id, category_id, raw_text, amount, currency, merchant, status, extraction_source, type, created_at, processed_at) "
+            + "VALUES (?, ?, ?, ?, 'Netflix $9.99', 9.99, 'USD', 'Netflix', 'PROCESSED', 'LLM', 'EXPENSE', now(), now())",
         UUID.randomUUID(),
         userId,
+        workspaceId,
         categoryId);
 
     mockMvc

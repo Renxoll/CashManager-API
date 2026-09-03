@@ -38,6 +38,14 @@ public class TransactionJpaEntity {
   @Column(name = "user_id", nullable = false)
   private UUID userId;
 
+  @Column(name = "workspace_id", nullable = false)
+  private UUID workspaceId;
+
+  /** Categoría cuando la transacción está en un módulo custom; NULL para el módulo General
+   * (ahí clasifica {@link #category}) y para los ingresos. */
+  @Column(name = "workspace_category_id")
+  private UUID workspaceCategoryId;
+
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "category_id")
   private CategoryJpaEntity category;

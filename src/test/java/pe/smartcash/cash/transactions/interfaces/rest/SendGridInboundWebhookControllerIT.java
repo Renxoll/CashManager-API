@@ -73,6 +73,8 @@ class SendGridInboundWebhookControllerIT {
     jdbcTemplate.update("DELETE FROM pending_senders");
     jdbcTemplate.update("DELETE FROM user_trusted_senders");
     jdbcTemplate.update("DELETE FROM transactions");
+    jdbcTemplate.update("DELETE FROM workspace_categories");
+    jdbcTemplate.update("DELETE FROM workspaces");
     jdbcTemplate.update("DELETE FROM user_profiles");
 
     userId = UUID.randomUUID();

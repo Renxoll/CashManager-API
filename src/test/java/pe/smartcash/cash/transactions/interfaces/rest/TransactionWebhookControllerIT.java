@@ -82,6 +82,8 @@ class TransactionWebhookControllerIT {
     // transactions primero: tiene FK hacia user_profiles, así que hay que vaciarla antes
     // de poder limpiar la tabla padre sin violar la constraint.
     jdbcTemplate.update("DELETE FROM transactions");
+    jdbcTemplate.update("DELETE FROM workspace_categories");
+    jdbcTemplate.update("DELETE FROM workspaces");
     jdbcTemplate.update("DELETE FROM user_profiles");
 
     validUserId = UUID.randomUUID();

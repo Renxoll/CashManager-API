@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.analytics.domain.model.queries.FindMonthlySummaryQuery;
 import pe.smartcash.cash.analytics.domain.services.DashboardQueryService;
@@ -27,8 +28,11 @@ class DashboardController {
   }
 
   @GetMapping("/monthly-summary")
-  ResponseEntity<MonthlySummaryResponse> monthlySummary(@AuthenticationPrincipal String authenticatedUserId) {
-    var summary = dashboardQueryService.handle(new FindMonthlySummaryQuery(UUID.fromString(authenticatedUserId)));
+  ResponseEntity<MonthlySummaryResponse> monthlySummary(
+      @AuthenticationPrincipal String authenticatedUserId,
+      @RequestParam(required = false) UUID workspaceId) {
+    var summary =
+        dashboardQueryService.handle(new FindMonthlySummaryQuery(UUID.fromString(authenticatedUserId), workspaceId));
     return ResponseEntity.ok(MonthlySummaryResourceFromEntityAssembler.toResourceFromEntity(summary));
   }
 }
