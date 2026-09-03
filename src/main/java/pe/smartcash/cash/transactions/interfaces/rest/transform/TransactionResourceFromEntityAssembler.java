@@ -14,10 +14,11 @@ public final class TransactionResourceFromEntityAssembler {
         detail.money() != null ? detail.money().amount() : null,
         detail.money() != null ? detail.money().currency() : null,
         detail.merchant() != null ? detail.merchant().name() : null,
-        detail.category() != null ? detail.category().code().name() : null,
+        detail.category() != null ? detail.category().code() : null,
         detail.category() != null ? detail.category().displayName() : null,
         detail.type() != null ? detail.type().name() : null,
         detail.internalTransfer(),
-        detail.createdAt());
+        detail.createdAt(),
+        detail.workspaceId());
   }
 }

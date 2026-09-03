@@ -2,7 +2,9 @@ package pe.smartcash.cash.transactions.application.internal.commandservices;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.modulith.events.ApplicationModuleListener;
@@ -11,10 +13,12 @@ import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
+import pe.smartcash.cash.transactions.domain.exception.WorkspaceNotAccessibleException;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
@@ -29,6 +33,8 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionStatus;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceCategoryId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceId;
 import pe.smartcash.cash.transactions.domain.policy.CategorizedExpenseNotificationPolicy;
 import pe.smartcash.cash.transactions.domain.policy.TrustedBankSenderPolicy;
 import pe.smartcash.cash.transactions.domain.service.BankNotificationHeuristicParser;
@@ -40,6 +46,7 @@ import pe.smartcash.cash.transactions.domain.services.RetryFailedTransactionsRes
 import pe.smartcash.cash.transactions.domain.services.TransactionCommandService;
 import pe.smartcash.cash.transactions.domain.services.TransactionExtractionService;
 import pe.smartcash.cash.transactions.domain.services.UserDirectory;
+import pe.smartcash.cash.transactions.domain.services.WorkspaceDirectory;
 
 /**
  * Implementación del caso de uso de escritura: recibir el texto crudo de una notificación
@@ -65,6 +72,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
   private final TrustedBankSenderPolicy trustedBankSenderPolicy;
   private final PendingSenderCommandService pendingSenderCommandService;
   private final ApplicationEventPublisher eventPublisher;
+  private final WorkspaceDirectory workspaceDirectory;
   private final Clock clock;
 
   TransactionCommandServiceImpl(
@@ -77,6 +85,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
       TrustedBankSenderPolicy trustedBankSenderPolicy,
       PendingSenderCommandService pendingSenderCommandService,
       ApplicationEventPublisher eventPublisher,
+      WorkspaceDirectory workspaceDirectory,
       Clock clock) {
     this.transactionRepository = transactionRepository;
     this.extractionService = extractionService;
@@ -87,6 +96,7 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     this.trustedBankSenderPolicy = trustedBankSenderPolicy;
     this.pendingSenderCommandService = pendingSenderCommandService;
     this.eventPublisher = eventPublisher;
+    this.workspaceDirectory = workspaceDirectory;
     this.clock = clock;
   }
 
@@ -131,7 +141,10 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
   }
 
   private TransactionId ingest(UserId userId, String rawText) {
-    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, rawText, clock.instant());
+    // Toda ingesta automática cae en el módulo "General" del usuario; luego el usuario puede
+    // moverla a otro módulo desde la app.
+    WorkspaceId defaultWorkspace = WorkspaceId.of(workspaceDirectory.defaultWorkspaceId(userId));
+    Transaction transaction = Transaction.receive(TransactionId.newId(), userId, rawText, clock.instant(), defaultWorkspace);
     transactionRepository.save(transaction);
 
     // Publicar ANTES de que termine la transacción (no después): con
@@ -232,7 +245,54 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
             .findById(command.transactionId())
             .filter(t -> t.userId().equals(command.requestingUserId()))
             .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
-    transaction.recategorize(command.newCategoryCode());
+    UUID workspaceId = transaction.workspaceId().value();
+    if (workspaceDirectory.isDefaultWorkspace(workspaceId, transaction.userId())) {
+      // Módulo General: la categoría es del catálogo cerrado. valueOf estricto -- un código
+      // inválido es un error del caller (400), no se cuela como OTROS.
+      transaction.recategorize(CategoryCode.valueOf(command.categoryCode().trim().toUpperCase(Locale.ROOT)));
+    } else {
+      UUID categoryId =
+          workspaceDirectory
+              .categoryId(workspaceId, transaction.userId(), command.categoryCode())
+              .orElseThrow(
+                  () -> new IllegalArgumentException("La categoría " + command.categoryCode() + " no existe en ese módulo"));
+      transaction.recategorizeWithin(WorkspaceCategoryId.of(categoryId));
+    }
+    transactionRepository.save(transaction);
+  }
+
+  @Override
+  @Transactional
+  public void handle(MoveTransactionToWorkspaceCommand command) {
+    Transaction transaction =
+        transactionRepository
+            .findById(command.transactionId())
+            .filter(t -> t.userId().equals(command.requestingUserId()))
+            .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
+
+    UUID targetId = command.targetWorkspaceId();
+    if (!workspaceDirectory.isOwnedBy(targetId, transaction.userId())) {
+      throw new WorkspaceNotAccessibleException(targetId);
+    }
+
+    if (transaction.type() == TransactionType.EXPENSE) {
+      if (command.categoryCode() == null || command.categoryCode().isBlank()) {
+        throw new IllegalArgumentException("Mover un gasto a otro módulo requiere una categoría destino");
+      }
+      if (workspaceDirectory.isDefaultWorkspace(targetId, transaction.userId())) {
+        CategoryCode code = CategoryCode.valueOf(command.categoryCode().trim().toUpperCase(Locale.ROOT));
+        transaction.moveToWorkspace(WorkspaceId.of(targetId), code, null);
+      } else {
+        UUID categoryId =
+            workspaceDirectory
+                .categoryId(targetId, transaction.userId(), command.categoryCode())
+                .orElseThrow(
+                    () -> new IllegalArgumentException("La categoría " + command.categoryCode() + " no existe en el módulo destino"));
+        transaction.moveToWorkspace(WorkspaceId.of(targetId), null, WorkspaceCategoryId.of(categoryId));
+      }
+    } else {
+      transaction.moveToWorkspace(WorkspaceId.of(targetId), null, null);
+    }
     transactionRepository.save(transaction);
   }
 
@@ -261,9 +321,22 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
     // -- para un ingreso a mano no hay notificación real que citar, así que se sintetiza una
     // descripción equivalente en vez de forzar al caller a inventar un texto.
     String rawText = "Ingreso registrado manualmente: %s".formatted(command.source());
-    Transaction transaction = Transaction.recordManualIncome(TransactionId.newId(), command.userId(), rawText, money, source, clock.instant());
+    WorkspaceId workspaceId = resolveIncomeWorkspace(command);
+    Transaction transaction =
+        Transaction.recordManualIncome(
+            TransactionId.newId(), command.userId(), rawText, money, source, clock.instant(), workspaceId);
     transactionRepository.save(transaction);
     return transaction.id();
+  }
+
+  private WorkspaceId resolveIncomeWorkspace(RecordManualIncomeCommand command) {
+    if (command.workspaceId() == null) {
+      return WorkspaceId.of(workspaceDirectory.defaultWorkspaceId(command.userId()));
+    }
+    if (!workspaceDirectory.isOwnedBy(command.workspaceId(), command.userId())) {
+      throw new WorkspaceNotAccessibleException(command.workspaceId());
+    }
+    return WorkspaceId.of(command.workspaceId());
   }
 
   private Extraction resolveExtraction(String rawText) {

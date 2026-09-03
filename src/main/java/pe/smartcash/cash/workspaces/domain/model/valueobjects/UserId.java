@@ -1,0 +1,28 @@
+package pe.smartcash.cash.workspaces.domain.model.valueobjects;
+
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Referencia al dueño del módulo, vista desde este bounded context. Deliberadamente NO es
+ * el mismo tipo que {@code iam.domain.model.valueobjects.UserId} ni el de los demás
+ * contextos: cada uno modela su propia noción de "usuario" y solo se traducen en el borde.
+ */
+public record UserId(UUID value) {
+
+  public UserId {
+    Objects.requireNonNull(value, "value");
+  }
+
+  public static UserId of(UUID value) {
+    return new UserId(value);
+  }
+
+  public static UserId parse(String raw) {
+    try {
+      return new UserId(UUID.fromString(raw));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("userId inválido: " + raw, e);
+    }
+  }
+}

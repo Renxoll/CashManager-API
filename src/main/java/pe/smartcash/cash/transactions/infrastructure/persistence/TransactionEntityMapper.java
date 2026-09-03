@@ -8,6 +8,8 @@ import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionId;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceCategoryId;
+import pe.smartcash.cash.transactions.domain.model.valueobjects.WorkspaceId;
 
 final class TransactionEntityMapper {
 
@@ -19,6 +21,9 @@ final class TransactionEntityMapper {
     return TransactionJpaEntity.builder()
         .id(transaction.id().value())
         .userId(transaction.userId().value())
+        .workspaceId(transaction.workspaceId() != null ? transaction.workspaceId().value() : null)
+        .workspaceCategoryId(
+            transaction.workspaceCategoryId() != null ? transaction.workspaceCategoryId().value() : null)
         .category(categoryEntity)
         .rawText(transaction.rawText())
         .amount(money != null ? money.amount() : null)
@@ -58,6 +63,8 @@ final class TransactionEntityMapper {
         entity.getExtractionSource(),
         entity.getErrorMessage(),
         entity.getProcessedAt(),
-        entity.isInternalTransfer());
+        entity.isInternalTransfer(),
+        entity.getWorkspaceId() != null ? WorkspaceId.of(entity.getWorkspaceId()) : null,
+        entity.getWorkspaceCategoryId() != null ? WorkspaceCategoryId.of(entity.getWorkspaceCategoryId()) : null);
   }
 }
