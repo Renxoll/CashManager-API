@@ -44,4 +44,10 @@ public class SubscriptionJpaEntity {
 
   @Column(name = "canceled_at")
   private Instant canceledAt;
+
+  // NULL para FREE (nunca pasa por Stripe) y para suscripciones activadas antes de que este
+  // campo existiera. Es el id de la Subscription de Stripe (no el de la Session de Checkout)
+  // -- lo necesario para poder cancelarla del lado del proveedor de pagos.
+  @Column(name = "stripe_subscription_id")
+  private String stripeSubscriptionId;
 }

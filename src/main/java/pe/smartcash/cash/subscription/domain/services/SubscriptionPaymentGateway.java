@@ -13,4 +13,14 @@ public interface SubscriptionPaymentGateway {
 
   /** @throws PaymentGatewayException si el proveedor de pagos falla o rechaza la operación. */
   CheckoutSession startCheckout(UserId userId, PlanCode planCode);
+
+  /**
+   * Cancela del lado del proveedor de pagos la suscripción recurrente identificada por {@code
+   * stripeSubscriptionId} -- sin esto, cancelar solo en nuestra BD no detiene el cobro
+   * automático de cada ciclo. Idempotente: cancelar una suscripción que el proveedor ya tiene
+   * como cancelada no debe fallar (reintentos del caller no deberían romperse).
+   *
+   * @throws PaymentGatewayException si el proveedor de pagos falla o rechaza la operación.
+   */
+  void cancel(String stripeSubscriptionId);
 }
