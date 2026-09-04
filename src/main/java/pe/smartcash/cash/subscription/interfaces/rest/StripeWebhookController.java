@@ -2,7 +2,9 @@ package pe.smartcash.cash.subscription.interfaces.rest;
 
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Event;
+import com.stripe.model.Invoice;
 import com.stripe.model.StripeObject;
+import com.stripe.model.Subscription;
 import com.stripe.model.checkout.Session;
 import com.stripe.net.Webhook;
 import io.sentry.Sentry;
@@ -33,6 +35,9 @@ import pe.smartcash.cash.subscription.interfaces.rest.transform.SubscriptionComm
 class StripeWebhookController {
 
   private static final String EVENT_CHECKOUT_SESSION_COMPLETED = "checkout.session.completed";
+  private static final String EVENT_INVOICE_PAID = "invoice.paid";
+  private static final String EVENT_INVOICE_PAYMENT_FAILED = "invoice.payment_failed";
+  private static final String EVENT_CUSTOMER_SUBSCRIPTION_DELETED = "customer.subscription.deleted";
 
   private final SubscriptionCommandService subscriptionCommandService;
   private final String webhookSecret;
@@ -63,11 +68,15 @@ class StripeWebhookController {
       return ResponseEntity.badRequest().build();
     }
 
-    if (EVENT_CHECKOUT_SESSION_COMPLETED.equals(event.getType())) {
-      activateFromCompletedCheckout(event);
+    switch (event.getType()) {
+      case EVENT_CHECKOUT_SESSION_COMPLETED -> activateFromCompletedCheckout(event);
+      case EVENT_INVOICE_PAID -> renewFromPaidInvoice(event);
+      case EVENT_INVOICE_PAYMENT_FAILED -> alertFailedInvoicePayment(event);
+      case EVENT_CUSTOMER_SUBSCRIPTION_DELETED -> expireFromDeletedSubscription(event);
+      // 200 para cualquier otro tipo de evento que no nos interesa: confirma la recepción sin
+      // procesarlo, así Stripe no lo reintenta pensando que falló.
+      default -> log.debug("Evento de Stripe ignorado: {}", event.getType());
     }
-    // 200 para cualquier otro tipo de evento que no nos interesa: confirma la recepción sin
-    // procesarlo, así Stripe no lo reintenta pensando que falló.
     return ResponseEntity.ok().build();
   }
 
@@ -85,7 +94,75 @@ class StripeWebhookController {
       log.error("checkout.session.completed sin metadata userId/planCode, sessionId={}", session.getId());
       return;
     }
+    // El id de la Subscription que Stripe crea junto con el pago (distinto del id de la
+    // Session) -- se necesita guardado para poder cancelarla después vía la API de Stripe.
+    String stripeSubscriptionId = session.getSubscription();
 
-    subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toActivateSubscriptionCommand(userId, planCode));
+    subscriptionCommandService.handle(
+        SubscriptionCommandFromResourceAssembler.toActivateSubscriptionCommand(userId, planCode, stripeSubscriptionId));
+  }
+
+  /**
+   * Stripe cobró automáticamente el ciclo siguiente de una suscripción en modo "subscription".
+   * Desde la reestructuración 2025 de invoicing, el id de la Subscription ya no viaja en
+   * {@code invoice.subscription} (ese campo no existe más) sino en
+   * {@code invoice.parent.subscription_details.subscription}.
+   */
+  private void renewFromPaidInvoice(Event event) {
+    StripeObject stripeObject =
+        event.getDataObjectDeserializer().getObject().orElseThrow(() -> new IllegalStateException("Evento sin payload deserializable"));
+    Invoice invoice = (Invoice) stripeObject;
+
+    String stripeSubscriptionId = subscriptionIdOf(invoice);
+    if (stripeSubscriptionId == null) {
+      // Factura que no corresponde a ninguna suscripción recurrente (p. ej. un cargo único)
+      // -- no hay nada que renovar acá.
+      return;
+    }
+    subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toRenewCommand(stripeSubscriptionId));
+  }
+
+  /**
+   * Un cobro de renovación falló (tarjeta rechazada, fondos insuficientes, etc). Stripe ya
+   * tiene su propio calendario de reintentos (Smart Retries) y termina resolviendo esto solo
+   * -- reintenta y dispara {@code invoice.paid}, o agota los reintentos y dispara {@code
+   * customer.subscription.deleted} -- así que acá no se muta nada todavía, solo se alerta para
+   * que quede visibilidad de que un cliente tiene un cobro en problemas.
+   */
+  private void alertFailedInvoicePayment(Event event) {
+    StripeObject stripeObject =
+        event.getDataObjectDeserializer().getObject().orElseThrow(() -> new IllegalStateException("Evento sin payload deserializable"));
+    Invoice invoice = (Invoice) stripeObject;
+
+    String stripeSubscriptionId = subscriptionIdOf(invoice);
+    log.warn(
+        "Falló el cobro de una factura de Stripe, invoiceId={}, stripeSubscriptionId={}, intento={}",
+        invoice.getId(),
+        stripeSubscriptionId,
+        invoice.getAttemptCount());
+    Sentry.captureMessage(
+        "Stripe invoice.payment_failed (invoiceId=%s, stripeSubscriptionId=%s)".formatted(invoice.getId(), stripeSubscriptionId),
+        scope -> scope.setTag("component", "stripe-webhook"));
+  }
+
+  /**
+   * La suscripción recurrente terminó del lado de Stripe: reintentos de cobro agotados, o se
+   * canceló directo desde el dashboard de Stripe (no desde la app -- eso ya lo cubre {@code
+   * SubscriptionController.cancelActive}, que llama a Stripe y este evento llega después como
+   * confirmación redundante).
+   */
+  private void expireFromDeletedSubscription(Event event) {
+    StripeObject stripeObject =
+        event.getDataObjectDeserializer().getObject().orElseThrow(() -> new IllegalStateException("Evento sin payload deserializable"));
+    Subscription subscription = (Subscription) stripeObject;
+
+    subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toExpireCommand(subscription.getId()));
+  }
+
+  private static String subscriptionIdOf(Invoice invoice) {
+    if (invoice.getParent() == null || invoice.getParent().getSubscriptionDetails() == null) {
+      return null;
+    }
+    return invoice.getParent().getSubscriptionDetails().getSubscription();
   }
 }
