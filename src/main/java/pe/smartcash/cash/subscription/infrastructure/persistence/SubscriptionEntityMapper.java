@@ -17,6 +17,7 @@ final class SubscriptionEntityMapper {
         .startedAt(subscription.startedAt())
         .renewsAt(subscription.renewsAt())
         .canceledAt(subscription.canceledAt())
+        .stripeSubscriptionId(subscription.stripeSubscriptionId())
         .build();
   }
 
@@ -28,6 +29,7 @@ final class SubscriptionEntityMapper {
         entity.getStatus(),
         entity.getStartedAt(),
         entity.getRenewsAt(),
-        entity.getCanceledAt());
+        entity.getCanceledAt(),
+        entity.getStripeSubscriptionId());
   }
 }

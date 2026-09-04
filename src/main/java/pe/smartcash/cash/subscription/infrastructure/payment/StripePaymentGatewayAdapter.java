@@ -1,6 +1,7 @@
 package pe.smartcash.cash.subscription.infrastructure.payment;
 
 import com.stripe.exception.StripeException;
+import com.stripe.model.Subscription;
 import com.stripe.model.checkout.Session;
 import com.stripe.param.checkout.SessionCreateParams;
 import org.springframework.stereotype.Component;
@@ -18,11 +19,11 @@ import pe.smartcash.cash.subscription.domain.services.SubscriptionPaymentGateway
  * cuenta el webhook) con "activar la suscripción de qué usuario" (lo que necesita el
  * dominio) — Stripe no sabe nada de nuestro modelo de usuarios.
  *
- * <p>Alcance de este MVP: solo maneja la activación inicial vía {@code
- * checkout.session.completed}. Renovaciones, pagos fallidos o cancelaciones iniciadas desde
- * el lado de Stripe (en modo subscription, Stripe cobra automáticamente cada ciclo) no están
- * sincronizadas todavía — necesitarían escuchar además {@code invoice.paid},
- * {@code customer.subscription.deleted}, etc.
+ * <p>La sincronización con el ciclo de vida de Stripe (renovaciones, cancelaciones iniciadas
+ * del lado de Stripe) vive en {@code StripeWebhookController}, que además de {@code
+ * checkout.session.completed} escucha {@code invoice.paid} y {@code
+ * customer.subscription.deleted}. {@code invoice.payment_failed} solo alerta (Sentry): Stripe
+ * ya reintenta el cobro solo y termina resolviendo el evento con uno de esos otros dos.
  */
 @Component
 class StripePaymentGatewayAdapter implements SubscriptionPaymentGateway {
@@ -54,6 +55,21 @@ class StripePaymentGatewayAdapter implements SubscriptionPaymentGateway {
       return new CheckoutSession(session.getUrl());
     } catch (StripeException e) {
       throw new PaymentGatewayException("No se pudo crear la sesión de Stripe Checkout", e);
+    }
+  }
+
+  @Override
+  public void cancel(String stripeSubscriptionId) {
+    try {
+      Subscription subscription = Subscription.retrieve(stripeSubscriptionId);
+      // Idempotente a propósito: si ya está cancelada (p. ej. un reintento del caller, o
+      // Stripe ya la había dado de baja por otro motivo) no hay nada que hacer -- llamar de
+      // nuevo a cancel() sobre una ya cancelada es un error del lado de Stripe, no un no-op.
+      if (!"canceled".equals(subscription.getStatus())) {
+        subscription.cancel();
+      }
+    } catch (StripeException e) {
+      throw new PaymentGatewayException("No se pudo cancelar la suscripción de Stripe " + stripeSubscriptionId, e);
     }
   }
 }
