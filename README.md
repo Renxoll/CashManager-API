@@ -26,7 +26,7 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 |---|---|
 | **`iam`** | Protección de la API: registro/login, hasheo de contraseñas (BCrypt), emisión y validación del Bearer token. |
 | **`profile`** | Registro y guardado de perfiles de usuario: nombre visible, token FCM para notificaciones. |
-| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Stripe Checkout (webhook `checkout.session.completed`). |
+| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Stripe Checkout, con el ciclo de vida sincronizado en ambos sentidos: cancelar en la app cancela también en Stripe, y los webhooks `checkout.session.completed` / `invoice.paid` / `customer.subscription.deleted` activan, renuevan y dan de baja la suscripción local cuando el cambio se origina en Stripe. |
 | **`transactions`** | El dominio core: ingesta y categorización de gastos (ver flujo abajo). Cada transacción vive en un **módulo** (ver `workspaces`). |
 | **`workspaces`** | "Módulos": el usuario separa sus gastos en varios contenedores renombrables y personalizables (color/ícono) — p. ej. "Empresa", "Hijo", "Inversiones" — cada uno con su propia lista de categorías, aparte del módulo "General" al que cae la ingesta automática. Ver [Módulos](#módulos-workspaces) abajo. |
 | **`analytics`** | Read model para el dashboard: resumen mensual de gasto/ingreso por moneda y desglose por categoría, acotado a un módulo. |
@@ -406,6 +406,10 @@ Migraciones Flyway en `src/main/resources/db/migration/`:
   backfill al módulo General del dueño) + `transactions.workspace_category_id` (categoría
   de módulo custom, NULL para el General). Sin FK hacia `workspaces` (autonomía de
   contexto).
+- **`V16__add_stripe_subscription_id_to_subscriptions.sql`**: `subscriptions.stripe_subscription_id`
+  (NULL para FREE y para suscripciones PREMIUM activadas antes de este cambio). Es lo que
+  permite a `CancelSubscriptionCommand` cancelar también del lado de Stripe, no solo local
+  — antes de esto, cancelar en la app no detenía el cobro recurrente en Stripe.
 
 ```sql
 transactions (
@@ -437,7 +441,7 @@ credentials (id UUID PK, email VARCHAR UNIQUE, hashed_password VARCHAR, created_
 user_profiles (id UUID PK, display_name VARCHAR, fcm_token TEXT, inbox_address VARCHAR,
                created_at, updated_at)
 subscriptions (id UUID PK, user_id UUID, plan_code VARCHAR, status VARCHAR,
-               started_at, renews_at, canceled_at)
+               started_at, renews_at, canceled_at, stripe_subscription_id VARCHAR)
 ```
 
 No hay FKs entre `credentials`, `user_profiles`, `subscriptions` ni `workspaces`: cada

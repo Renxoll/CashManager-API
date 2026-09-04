@@ -73,5 +73,25 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
 
+      # --- Stripe: pasarela de pago del contexto subscription (ver StripePaymentGatewayAdapter
+      # + StripeWebhookController). Sin estas 5, cualquier checkout PREMIUM en prod revienta con
+      # 502 (PaymentGatewayException) porque StripeProperties queda vacío -- son opcionales para
+      # que el resto de la app pueda levantar en dev/CI sin Stripe, pero no en un deploy real.
+      # secret-key y webhook-secret DEBEN ser las claves live (sk_live_/whsec_...) del dashboard
+      # de Stripe, nunca las de test. premium-price-id es el id del Price recurrente del
+      # Product PREMIUM (Product catalog del dashboard, modo live). success/cancel-url quedan
+      # sync:false en vez de un `value` fijo acá porque dependen del dominio real del frontend
+      # (que todavía puede no coincidir con el default de dev en application.properties).
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PREMIUM_PRICE_ID
+        sync: false
+      - key: STRIPE_SUCCESS_URL
+        sync: false
+      - key: STRIPE_CANCEL_URL
+        sync: false
+
       - key: FCM_ENABLED
         value: "false"
