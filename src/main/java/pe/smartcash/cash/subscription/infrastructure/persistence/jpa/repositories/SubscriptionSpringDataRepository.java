@@ -9,4 +9,6 @@ import pe.smartcash.cash.subscription.infrastructure.persistence.SubscriptionJpa
 public interface SubscriptionSpringDataRepository extends JpaRepository<SubscriptionJpaEntity, UUID> {
 
   Optional<SubscriptionJpaEntity> findByUserIdAndStatus(UUID userId, SubscriptionStatus status);
+
+  Optional<SubscriptionJpaEntity> findByStripeSubscriptionId(String stripeSubscriptionId);
 }
