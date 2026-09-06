@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.iam.domain.exception.InvalidCredentialsException;
 import pe.smartcash.cash.iam.domain.services.IamCommandService;
 import pe.smartcash.cash.iam.interfaces.rest.resources.RefreshTokenResource;
+import pe.smartcash.cash.iam.interfaces.rest.resources.RequestPasswordResetResource;
+import pe.smartcash.cash.iam.interfaces.rest.resources.ResetPasswordResource;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignInResource;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignUpResource;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignUpResultResource;
@@ -46,6 +48,24 @@ class IamController {
   ResponseEntity<TokenPairResource> refresh(@Valid @RequestBody RefreshTokenResource resource) {
     var tokenPair = iamCommandService.handle(IamCommandFromResourceAssembler.toRefreshTokenCommand(resource));
     return ResponseEntity.ok(IamResourceFromResultAssembler.toTokenPairResource(tokenPair));
+  }
+
+  /**
+   * Siempre 202, exista o no una cuenta con ese email: la respuesta no puede servir para
+   * enumerar usuarios registrados. El trabajo real (emitir token + mandar el correo) pasa
+   * server-side sin devolver nada al cliente.
+   */
+  @PostMapping("/password-reset/request")
+  ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody RequestPasswordResetResource resource) {
+    iamCommandService.handle(IamCommandFromResourceAssembler.toRequestPasswordResetCommand(resource));
+    return ResponseEntity.accepted().build();
+  }
+
+  /** Consume el token del enlace y fija la contraseña nueva. 204 si salió; 400 si el token no sirve. */
+  @PostMapping("/password-reset/confirm")
+  ResponseEntity<Void> confirmPasswordReset(@Valid @RequestBody ResetPasswordResource resource) {
+    iamCommandService.handle(IamCommandFromResourceAssembler.toResetPasswordCommand(resource));
+    return ResponseEntity.noContent().build();
   }
 
   /**

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pe.smartcash.cash.iam.domain.exception.EmailAlreadyRegisteredException;
 import pe.smartcash.cash.iam.domain.exception.InvalidCredentialsException;
+import pe.smartcash.cash.iam.domain.exception.InvalidPasswordResetTokenException;
 import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 
 @RestControllerAdvice
@@ -26,5 +27,11 @@ class IamExceptionHandler {
   ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
         .body(new ApiError(Instant.now(), 401, "Unauthorized", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(InvalidPasswordResetTokenException.class)
+  ResponseEntity<ApiError> handleInvalidPasswordResetToken(InvalidPasswordResetTokenException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(new ApiError(Instant.now(), 400, "Bad Request", ex.getMessage(), request.getRequestURI()));
   }
 }
