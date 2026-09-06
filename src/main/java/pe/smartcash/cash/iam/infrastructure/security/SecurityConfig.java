@@ -41,6 +41,11 @@ class SecurityConfig {
                         "/api/v1/iam/sign-up",
                         "/api/v1/iam/sign-in",
                         "/api/v1/iam/refresh",
+                        // Ambos endpoints del flujo "olvidé mi contraseña" son previos a
+                        // tener sesión: el request llega desde la pantalla de login y el
+                        // confirm desde el enlace del correo, ninguno con Bearer.
+                        "/api/v1/iam/password-reset/request",
+                        "/api/v1/iam/password-reset/confirm",
                         "/api/v1/subscriptions/stripe-webhook",
                         // SendGrid Inbound Parse no manda Bearer (ni puede: no es un cliente
                         // de nuestra API); el token de query (?token=) en
