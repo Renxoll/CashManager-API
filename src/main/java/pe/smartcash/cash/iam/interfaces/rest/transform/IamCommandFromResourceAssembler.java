@@ -2,9 +2,13 @@ package pe.smartcash.cash.iam.interfaces.rest.transform;
 
 import pe.smartcash.cash.iam.domain.model.commands.LogoutCommand;
 import pe.smartcash.cash.iam.domain.model.commands.RefreshTokenCommand;
+import pe.smartcash.cash.iam.domain.model.commands.RequestPasswordResetCommand;
+import pe.smartcash.cash.iam.domain.model.commands.ResetPasswordCommand;
 import pe.smartcash.cash.iam.domain.model.commands.SignInCommand;
 import pe.smartcash.cash.iam.domain.model.commands.SignUpCommand;
 import pe.smartcash.cash.iam.interfaces.rest.resources.RefreshTokenResource;
+import pe.smartcash.cash.iam.interfaces.rest.resources.RequestPasswordResetResource;
+import pe.smartcash.cash.iam.interfaces.rest.resources.ResetPasswordResource;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignInResource;
 import pe.smartcash.cash.iam.interfaces.rest.resources.SignUpResource;
 
@@ -26,5 +30,13 @@ public final class IamCommandFromResourceAssembler {
 
   public static LogoutCommand toLogoutCommand(String accessToken) {
     return new LogoutCommand(accessToken);
+  }
+
+  public static RequestPasswordResetCommand toRequestPasswordResetCommand(RequestPasswordResetResource resource) {
+    return new RequestPasswordResetCommand(resource.email());
+  }
+
+  public static ResetPasswordCommand toResetPasswordCommand(ResetPasswordResource resource) {
+    return new ResetPasswordCommand(resource.token(), resource.password());
   }
 }

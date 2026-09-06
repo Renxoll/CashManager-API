@@ -2,6 +2,8 @@ package pe.smartcash.cash.iam.domain.services;
 
 import pe.smartcash.cash.iam.domain.model.commands.LogoutCommand;
 import pe.smartcash.cash.iam.domain.model.commands.RefreshTokenCommand;
+import pe.smartcash.cash.iam.domain.model.commands.RequestPasswordResetCommand;
+import pe.smartcash.cash.iam.domain.model.commands.ResetPasswordCommand;
 import pe.smartcash.cash.iam.domain.model.commands.SignInCommand;
 import pe.smartcash.cash.iam.domain.model.commands.SignUpCommand;
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
@@ -16,4 +18,10 @@ public interface IamCommandService {
   TokenPair handle(RefreshTokenCommand command);
 
   void handle(LogoutCommand command);
+
+  /** Emite y envía por correo un enlace de restablecimiento. No falla ni revela si el email existe. */
+  void handle(RequestPasswordResetCommand command);
+
+  /** Consume el token del enlace y cambia la contraseña. Lanza si el token no es válido/expiró/ya se usó. */
+  void handle(ResetPasswordCommand command);
 }
