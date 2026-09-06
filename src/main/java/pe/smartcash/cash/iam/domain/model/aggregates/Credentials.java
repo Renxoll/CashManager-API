@@ -34,6 +34,11 @@ public final class Credentials {
     return new Credentials(id, email, hashedPassword, createdAt);
   }
 
+  /** Sustituye el hash de la contraseña -- lo usa el flujo de restablecimiento tras validar el token. */
+  public void changePassword(HashedPassword newHashedPassword) {
+    this.hashedPassword = Objects.requireNonNull(newHashedPassword, "newHashedPassword");
+  }
+
   public UserId id() {
     return id;
   }
