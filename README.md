@@ -24,7 +24,7 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 
 | Contexto | Responsabilidad |
 |---|---|
-| **`iam`** | Protección de la API: registro/login, hasheo de contraseñas (BCrypt), emisión y validación del Bearer token. |
+| **`iam`** | Protección de la API: registro/login, hasheo de contraseñas (BCrypt), emisión y validación del Bearer token. Restablecimiento de contraseña por correo (token de un solo uso, enviado vía SendGrid, endpoints anti-enumeración). |
 | **`profile`** | Registro y guardado de perfiles de usuario: nombre visible, token FCM para notificaciones. |
 | **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Stripe Checkout, con el ciclo de vida sincronizado en ambos sentidos: cancelar en la app cancela también en Stripe, y los webhooks `checkout.session.completed` / `invoice.paid` / `customer.subscription.deleted` activan, renuevan y dan de baja la suscripción local cuando el cambio se origina en Stripe. |
 | **`transactions`** | El dominio core: ingesta y categorización de gastos (ver flujo abajo). Cada transacción vive en un **módulo** (ver `workspaces`). |
@@ -222,12 +222,14 @@ pe.smartcash.cash
 │   │   └── exception/        EmailAlreadyRegisteredException, InvalidCredentialsException
 │   ├── application/internal/commandservices/  IamCommandServiceImpl
 │   ├── infrastructure/
-│   │   ├── persistence/  JPA entity + mapper + adapter (tabla credentials)
+│   │   ├── persistence/  JPA entity + mapper + adapter (tablas credentials, password_reset_tokens)
 │   │   ├── hashing/       BCryptPasswordHasherAdapter
-│   │   ├── tokens/        HmacTokenServiceAdapter (firma HMAC-SHA256, no JWT de librería)
+│   │   ├── tokens/        HmacTokenServiceAdapter (HMAC-SHA256, no JWT de librería)
+│   │   │                  + Sha256PasswordResetTokenGenerator (token de reset + su hash)
+│   │   ├── email/         PasswordResetEmailNotifier: SendGrid (Web API v3) + Logging (no-op) según app.sendgrid.enabled
 │   │   └── security/      SecurityConfig (SecurityFilterChain) + BearerTokenAuthenticationFilter
 │   │                       + BearerAuthenticationEntryPoint (401 con el mismo formato ApiError)
-│   └── interfaces/rest/   IamController (sign-up, sign-in) + resources/transform
+│   └── interfaces/rest/   IamController (sign-up, sign-in, refresh, logout, password-reset) + resources/transform
 │
 ├── profile/                               [registro y guardado de perfiles]
 │   ├── domain/
@@ -361,9 +363,10 @@ cambio en el contrato JSON público nunca obliga a tocar el dominio, y viceversa
 
 ## Protección de la API (IAM)
 
-Toda la API es stateless y exige `Authorization: Bearer <token>` salvo
-`/api/v1/iam/sign-up`, `/api/v1/iam/sign-in` y `/actuator/health`
-(`iam/infrastructure/security/SecurityConfig`).
+Toda la API es stateless y exige `Authorization: Bearer <token>` salvo los endpoints previos
+a tener sesión — `/api/v1/iam/sign-up`, `sign-in`, `refresh`, `password-reset/request`,
+`password-reset/confirm` — y `/actuator/health` (`iam/infrastructure/security/SecurityConfig`).
+`logout` sí exige token (lo lee del propio header).
 
 - **Hasheo**: `BCryptPasswordHasherAdapter` (BCrypt vía `spring-security-crypto`) — el
   dominio nunca ve ni persiste una contraseña en texto plano, solo `HashedPassword`.
@@ -377,6 +380,21 @@ Toda la API es stateless y exige `Authorization: Bearer <token>` salvo
   con el userId como principal. Sin token o con uno inválido, `BearerAuthenticationEntryPoint`
   devuelve `401` (no el `403` que da Spring Security por defecto sin un entry point
   configurado) con el mismo formato `ApiError` que el resto de la API.
+- **Restablecer contraseña**: `POST /api/v1/iam/password-reset/request` (body `{email}`)
+  responde **siempre `202`**, exista o no la cuenta — la respuesta no sirve para enumerar
+  usuarios. Si existe, se emite un token de un solo uso (32 bytes aleatorios; se persiste
+  solo su SHA-256, ver `V17`), se invalidan los tokens previos del usuario, y se manda un
+  correo con `link-base-url?token=<crudo>`. `POST /api/v1/iam/password-reset/confirm` (body
+  `{token, password}`) rehashea el token para buscarlo, valida vigencia y "no usado",
+  cambia el hash de la contraseña y quema el token → `204`, o `400` genérico si el token no
+  sirve. El envío usa la Web API v3 de SendGrid (`SendGridPasswordResetEmailAdapter`); con
+  `app.sendgrid.enabled=false` (default) no se envía nada y el enlace se loguea, así dev/CI
+  no necesitan API key. En prod: `SENDGRID_ENABLED=true` + `SENDGRID_API_KEY` (permiso *Mail
+  Send*) + `SENDGRID_FROM_EMAIL` (remitente verificado) + `PASSWORD_RESET_LINK_BASE_URL`
+  (una vista real del frontend, no de este backend). El endpoint `request` está rate-limited
+  por IP/usuario (mismo filtro que ingesta de transacciones y webhook de Stripe). Las
+  sesiones ya emitidas siguen válidas hasta expirar (el token HMAC stateless no tiene
+  revocación por-usuario) — asumido aceptable para el MVP.
 
 ## Modelo de datos
 
@@ -410,6 +428,10 @@ Migraciones Flyway en `src/main/resources/db/migration/`:
   (NULL para FREE y para suscripciones PREMIUM activadas antes de este cambio). Es lo que
   permite a `CancelSubscriptionCommand` cancelar también del lado de Stripe, no solo local
   — antes de esto, cancelar en la app no detenía el cobro recurrente en Stripe.
+- **`V17__create_password_reset_tokens.sql`**: tabla `password_reset_tokens` para el flujo
+  "olvidé mi contraseña" de IAM. Guarda solo el SHA-256 del token (nunca el crudo, que vive
+  únicamente en el enlace del correo), su `expires_at` y `redeemed_at` (un solo uso). Sin FK
+  hacia `credentials` (autonomía de contexto).
 
 ```sql
 transactions (
@@ -438,6 +460,8 @@ workspace_categories (id UUID PK, workspace_id UUID FK -> workspaces, code VARCH
                       archived BOOLEAN, UNIQUE (workspace_id, code))
 
 credentials (id UUID PK, email VARCHAR UNIQUE, hashed_password VARCHAR, created_at)
+password_reset_tokens (id UUID PK, user_id UUID, token_hash VARCHAR UNIQUE,
+                       created_at, expires_at, redeemed_at)
 user_profiles (id UUID PK, display_name VARCHAR, fcm_token TEXT, inbox_address VARCHAR,
                created_at, updated_at)
 subscriptions (id UUID PK, user_id UUID, plan_code VARCHAR, status VARCHAR,

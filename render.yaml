@@ -93,5 +93,19 @@ services:
       - key: STRIPE_CANCEL_URL
         sync: false
 
+      # --- Envío de correo (SendGrid Web API v3): hoy solo el correo de "restablecer
+      # contraseña" de IAM. Con SENDGRID_ENABLED=false el backend levanta igual pero no
+      # manda nada (loguea el enlace) -- en prod tiene que ser "true" + una API key con
+      # permiso "Mail Send" y un remitente verificado. PASSWORD_RESET_LINK_BASE_URL es la
+      # vista del frontend que recibe el ?token= (no un endpoint de este backend).
+      - key: SENDGRID_ENABLED
+        value: "true"
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: SENDGRID_FROM_EMAIL
+        sync: false
+      - key: PASSWORD_RESET_LINK_BASE_URL
+        value: https://www.tuluki.com/reset-password
+
       - key: FCM_ENABLED
         value: "false"
