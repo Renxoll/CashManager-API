@@ -31,7 +31,7 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 | **`workspaces`** | "Módulos": el usuario separa sus gastos en varios contenedores renombrables y personalizables (color/ícono) — p. ej. "Empresa", "Hijo", "Inversiones" — cada uno con su propia lista de categorías, aparte del módulo "General" al que cae la ingesta automática. Ver [Módulos](#módulos-workspaces) abajo. |
 | **`analytics`** | Read model para el dashboard: resumen mensual de gasto/ingreso por moneda y desglose por categoría, acotado a un módulo. |
 | **`groups`** | Gastos compartidos estilo Splitwise: grupos con otros usuarios reales, división en partes iguales, saldos y simplificación de deudas. |
-| **`gmailsync`** | Conexión OAuth2 a la bandeja de Gmail del usuario para leer sus notificaciones bancarias directo (alternativa a reenviar correos a mano). |
+| **`gmailsync`** | Conexión OAuth2 a la bandeja de Gmail del usuario para leer sus notificaciones bancarias directo (alternativa a reenviar correos a mano). Una conexión cuyo grant caducó (revocado, o sin el scope `gmail.readonly`) se marca `NEEDS_RECONNECT` y deja de reintentarse en cada poll. |
 | **`advisor`** | Asesor financiero conversacional (LLM) sobre el contexto financiero del mes del usuario. |
 | `shared` | Plumbing técnico transversal (no es un bounded context): `ApiError`, el `@RestControllerAdvice` catch-all, rate limiting, observabilidad. |
 
@@ -433,6 +433,12 @@ Migraciones Flyway en `src/main/resources/db/migration/`:
   "olvidé mi contraseña" de IAM. Guarda solo el SHA-256 del token (nunca el crudo, que vive
   únicamente en el enlace del correo), su `expires_at` y `redeemed_at` (un solo uso). Sin FK
   hacia `credentials` (autonomía de contexto).
+- **`V18__add_sync_error_to_gmail_connections.sql`**: `gmail_connections.sync_error` +
+  `sync_error_at`. Marca una conexión cuyo grant OAuth dejó de servir de forma no
+  recuperable — el usuario revocó el acceso (`invalid_grant` en el refresh) o el grant se
+  hizo sin el scope `gmail.readonly` (`403 ACCESS_TOKEN_SCOPE_INSUFFICIENT` al listar
+  mensajes). El poll deja de reintentarla y el frontend ofrece "reconectar"; se limpia sola
+  en el primer sync exitoso posterior (o al reconectar).
 
 ```sql
 transactions (

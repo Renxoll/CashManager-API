@@ -8,7 +8,9 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
+import pe.smartcash.cash.gmailsync.domain.exception.GmailAuthorizationException;
 import pe.smartcash.cash.gmailsync.domain.services.GmailMessage;
 import pe.smartcash.cash.gmailsync.domain.services.GmailMessagePort;
 
@@ -51,13 +53,18 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
   private List<GmailMessage> search(String accessToken, String query) {
     RestClient restClient = restClientBuilder.build();
 
-    GmailMessageListResponse listResponse =
-        restClient
-            .get()
-            .uri(BASE_URL + "/messages?q={q}", query)
-            .header("Authorization", "Bearer " + accessToken)
-            .retrieve()
-            .body(GmailMessageListResponse.class);
+    GmailMessageListResponse listResponse;
+    try {
+      listResponse =
+          restClient
+              .get()
+              .uri(BASE_URL + "/messages?q={q}", query)
+              .header("Authorization", "Bearer " + accessToken)
+              .retrieve()
+              .body(GmailMessageListResponse.class);
+    } catch (HttpClientErrorException e) {
+      throw translateOrRethrow(e);
+    }
 
     if (listResponse == null || listResponse.messages() == null) {
       return List.of();
@@ -69,14 +76,32 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
         .toList();
   }
 
+  /**
+   * 401 (token inválido/expirado que el refresh no arregló) y 403 (típicamente {@code
+   * ACCESS_TOKEN_SCOPE_INSUFFICIENT}: el grant no incluye {@code gmail.readonly}) son
+   * problemas de autorización que solo el usuario reconectando resuelve. El resto (429, 5xx)
+   * se relanza tal cual: son transitorios y el próximo poll reintenta.
+   */
+  private static RuntimeException translateOrRethrow(HttpClientErrorException e) {
+    if (e.getStatusCode().value() == 401 || e.getStatusCode().value() == 403) {
+      return new GmailAuthorizationException("Gmail rechazó el acceso (" + e.getStatusCode() + "): " + e.getStatusText(), e);
+    }
+    return e;
+  }
+
   private GmailMessage fetchMessage(RestClient restClient, String accessToken, String messageId) {
-    GmailFullMessage full =
-        restClient
-            .get()
-            .uri(BASE_URL + "/messages/{id}?format=full", messageId)
-            .header("Authorization", "Bearer " + accessToken)
-            .retrieve()
-            .body(GmailFullMessage.class);
+    GmailFullMessage full;
+    try {
+      full =
+          restClient
+              .get()
+              .uri(BASE_URL + "/messages/{id}?format=full", messageId)
+              .header("Authorization", "Bearer " + accessToken)
+              .retrieve()
+              .body(GmailFullMessage.class);
+    } catch (HttpClientErrorException e) {
+      throw translateOrRethrow(e);
+    }
 
     if (full == null || full.payload() == null) {
       return null;

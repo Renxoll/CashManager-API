@@ -9,6 +9,7 @@ import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import pe.smartcash.cash.gmailsync.domain.exception.GmailAuthorizationException;
 import pe.smartcash.cash.gmailsync.domain.model.aggregates.GmailConnection;
 import pe.smartcash.cash.gmailsync.domain.model.aggregates.GmailConnectionRepository;
 import pe.smartcash.cash.gmailsync.domain.model.valueobjects.UserId;
@@ -68,11 +69,23 @@ class GmailSyncServiceImpl implements GmailSyncService {
     int ingested = 0;
     int pending = 0;
     for (GmailConnection connection : connections) {
+      // Ya marcada como "reconectar": no se reintenta hasta que el usuario rehaga el OAuth
+      // (un sync exitoso posterior limpia el flag vía GmailConnection.recordSync).
+      if (connection.needsReconnect()) {
+        continue;
+      }
       try {
         ConnectionOutcome outcome = pollConnection(connection);
         connectionsSynced++;
         ingested += outcome.ingested();
         pending += outcome.pending();
+      } catch (GmailAuthorizationException authFailure) {
+        connection.recordAuthFailure(clock.instant());
+        connectionRepository.save(connection);
+        log.warn(
+            "Conexión de Gmail del usuario {} marcada para reconectar (acceso revocado o sin scope gmail.readonly): {}",
+            connection.userId().value(),
+            authFailure.getMessage());
       } catch (Exception e) {
         log.warn("Fallo sincronizando Gmail para el usuario {}: {}", connection.userId().value(), e.getMessage(), e);
       }

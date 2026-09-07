@@ -23,6 +23,11 @@ class GmailConnectionQueryServiceImpl implements GmailConnectionQueryService {
   }
 
   private GmailConnectionDetail toDetail(GmailConnection connection) {
-    return new GmailConnectionDetail(connection.id(), connection.email(), connection.connectedAt(), connection.lastSyncedAt());
+    return new GmailConnectionDetail(
+        connection.id(),
+        connection.email(),
+        connection.connectedAt(),
+        connection.lastSyncedAt(),
+        connection.needsReconnect());
   }
 }
