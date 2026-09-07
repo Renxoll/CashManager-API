@@ -2,6 +2,8 @@ package pe.smartcash.cash.gmailsync.infrastructure.persistence;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
@@ -10,6 +12,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import pe.smartcash.cash.gmailsync.domain.model.valueobjects.GmailSyncError;
 
 /** access_token/refresh_token viajan ya cifrados acá (ver TokenCipher en
  * GmailConnectionEntityMapper) -- esta clase nunca ve texto plano. */
@@ -46,4 +49,11 @@ public class GmailConnectionJpaEntity {
 
   @Column(name = "updated_at", nullable = false)
   private Instant updatedAt;
+
+  @Enumerated(EnumType.STRING)
+  @Column(name = "sync_error", length = 32)
+  private GmailSyncError syncError;
+
+  @Column(name = "sync_error_at")
+  private Instant syncErrorAt;
 }

@@ -6,9 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.util.UriComponentsBuilder;
+import pe.smartcash.cash.gmailsync.domain.exception.GmailAuthorizationException;
 import pe.smartcash.cash.gmailsync.domain.services.GoogleOAuthPort;
 import pe.smartcash.cash.gmailsync.domain.services.OAuthTokens;
 
@@ -44,6 +46,9 @@ class GoogleOAuthPortAdapter implements GoogleOAuthPort {
         .queryParam("access_type", "offline")
         .queryParam("prompt", "consent")
         .queryParam("state", state)
+        // scope trae espacios entre los tres scopes -> hay que percent-encodearlos (el
+        // navegador venía tapando el hueco al navegar, pero no hay que depender de eso).
+        .encode()
         .build()
         .toUriString();
   }
@@ -66,7 +71,17 @@ class GoogleOAuthPortAdapter implements GoogleOAuthPort {
     form.add("client_id", properties.clientId());
     form.add("client_secret", properties.clientSecret());
     form.add("grant_type", "refresh_token");
-    return callTokenEndpoint(form);
+    try {
+      return callTokenEndpoint(form);
+    } catch (HttpClientErrorException e) {
+      // 400 invalid_grant = el usuario revocó el acceso desde su cuenta de Google (o el
+      // refresh token caducó por inactividad prolongada). No es transitorio: hace falta
+      // reconectar. Otros 4xx del token endpoint (config mal, etc.) se relanzan tal cual.
+      if (e.getStatusCode().value() == 400 && e.getResponseBodyAsString().contains("invalid_grant")) {
+        throw new GmailAuthorizationException("Google rechazó el refresh token (invalid_grant): acceso revocado o caducado", e);
+      }
+      throw e;
+    }
   }
 
   private OAuthTokens callTokenEndpoint(MultiValueMap<String, String> form) {

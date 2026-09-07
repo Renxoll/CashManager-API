@@ -46,7 +46,14 @@ class GmailConnectionController {
   ResponseEntity<List<GmailConnectionResource>> list(@AuthenticationPrincipal String authenticatedUserId) {
     var resources =
         queryService.handle(new FindGmailConnectionsByUserQuery(UserId.parse(authenticatedUserId))).stream()
-            .map(detail -> new GmailConnectionResource(detail.id().value(), detail.email(), detail.connectedAt(), detail.lastSyncedAt()))
+            .map(
+                detail ->
+                    new GmailConnectionResource(
+                        detail.id().value(),
+                        detail.email(),
+                        detail.connectedAt(),
+                        detail.lastSyncedAt(),
+                        detail.needsReconnect()))
             .toList();
     return ResponseEntity.ok(resources);
   }

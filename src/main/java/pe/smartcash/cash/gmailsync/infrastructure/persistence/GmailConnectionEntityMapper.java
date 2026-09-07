@@ -31,6 +31,8 @@ class GmailConnectionEntityMapper {
         .lastSyncedAt(connection.lastSyncedAt())
         .connectedAt(connection.connectedAt())
         .updatedAt(connection.updatedAt())
+        .syncError(connection.syncError())
+        .syncErrorAt(connection.syncErrorAt())
         .build();
   }
 
@@ -44,6 +46,8 @@ class GmailConnectionEntityMapper {
         entity.getAccessTokenExpiresAt(),
         entity.getLastSyncedAt(),
         entity.getConnectedAt(),
-        entity.getUpdatedAt());
+        entity.getUpdatedAt(),
+        entity.getSyncError(),
+        entity.getSyncErrorAt());
   }
 }
