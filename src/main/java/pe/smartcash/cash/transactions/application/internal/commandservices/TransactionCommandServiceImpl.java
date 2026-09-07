@@ -19,6 +19,7 @@ import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionReposit
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualExpenseCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
@@ -330,13 +331,58 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
   }
 
   private WorkspaceId resolveIncomeWorkspace(RecordManualIncomeCommand command) {
-    if (command.workspaceId() == null) {
-      return WorkspaceId.of(workspaceDirectory.defaultWorkspaceId(command.userId()));
+    return resolveManualWorkspace(command.userId(), command.workspaceId());
+  }
+
+  /** {@code null} -> módulo "General" del usuario; si viene, tiene que ser un módulo suyo. */
+  private WorkspaceId resolveManualWorkspace(UserId userId, UUID workspaceId) {
+    if (workspaceId == null) {
+      return WorkspaceId.of(workspaceDirectory.defaultWorkspaceId(userId));
     }
-    if (!workspaceDirectory.isOwnedBy(command.workspaceId(), command.userId())) {
-      throw new WorkspaceNotAccessibleException(command.workspaceId());
+    if (!workspaceDirectory.isOwnedBy(workspaceId, userId)) {
+      throw new WorkspaceNotAccessibleException(workspaceId);
     }
-    return WorkspaceId.of(command.workspaceId());
+    return WorkspaceId.of(workspaceId);
+  }
+
+  @Override
+  @Transactional
+  public TransactionId handle(RecordManualExpenseCommand command) {
+    Money money = new Money(command.amount(), command.currency());
+    Merchant merchant = new Merchant(command.merchant());
+    WorkspaceId workspaceId = resolveManualWorkspace(command.userId(), command.workspaceId());
+    // rawText es NOT NULL y documenta "de dónde salió el dato" -- sin notificación real que
+    // citar, se sintetiza igual que en recordManualIncome.
+    String rawText = "Gasto registrado manualmente: %s".formatted(command.merchant());
+
+    Transaction transaction;
+    if (workspaceDirectory.isDefaultWorkspace(workspaceId.value(), command.userId())) {
+      // Módulo General: categoría del catálogo cerrado. valueOf estricto -- un código inválido
+      // es error del caller (400 vía GlobalExceptionHandler), no se cuela como OTROS.
+      CategoryCode code = CategoryCode.valueOf(command.categoryCode().trim().toUpperCase(Locale.ROOT));
+      transaction =
+          Transaction.recordManualExpense(
+              TransactionId.newId(), command.userId(), rawText, money, merchant, code, null, clock.instant(), workspaceId);
+    } else {
+      UUID categoryId =
+          workspaceDirectory
+              .categoryId(workspaceId.value(), command.userId(), command.categoryCode())
+              .orElseThrow(
+                  () -> new IllegalArgumentException("La categoría " + command.categoryCode() + " no existe en ese módulo"));
+      transaction =
+          Transaction.recordManualExpense(
+              TransactionId.newId(),
+              command.userId(),
+              rawText,
+              money,
+              merchant,
+              null,
+              WorkspaceCategoryId.of(categoryId),
+              clock.instant(),
+              workspaceId);
+    }
+    transactionRepository.save(transaction);
+    return transaction.id();
   }
 
   private Extraction resolveExtraction(String rawText) {
