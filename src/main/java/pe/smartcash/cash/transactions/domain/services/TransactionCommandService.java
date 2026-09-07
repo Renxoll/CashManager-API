@@ -4,6 +4,7 @@ import java.util.Optional;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualExpenseCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RetryFailedTransactionsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
@@ -55,4 +56,9 @@ public interface TransactionCommandService {
   /** Registro manual de un ingreso -- siempre PROCESSED de una, nunca falla por LLM porque
    * no hay extracción de por medio. */
   TransactionId handle(RecordManualIncomeCommand command);
+
+  /** Registro manual de un gasto -- como el ingreso, PROCESSED de una; el {@code categoryCode}
+   * se valida contra el catálogo cerrado (módulo General) o contra las categorías del módulo
+   * destino, y un código inválido es un 400. */
+  TransactionId handle(RecordManualExpenseCommand command);
 }

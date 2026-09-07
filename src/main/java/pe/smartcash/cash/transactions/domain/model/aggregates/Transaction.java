@@ -106,6 +106,39 @@ public final class Transaction {
     return transaction;
   }
 
+  /**
+   * Gasto cargado a mano por el usuario desde la app -- para lo que no llega por correo. Igual
+   * que {@link #recordManualIncome} nace directo en PROCESSED con {@code extractionSource}
+   * MANUAL y sin emitir eventos, pero es un GASTO y por lo tanto sí lleva categoría: exactamente
+   * una de {@code categoryCode} (módulo "General", catálogo cerrado) o {@code workspaceCategoryId}
+   * (módulo custom) -- misma invariante que {@link #moveToWorkspace} para un gasto.
+   */
+  public static Transaction recordManualExpense(
+      TransactionId id,
+      UserId userId,
+      String rawText,
+      Money money,
+      Merchant merchant,
+      CategoryCode categoryCode,
+      WorkspaceCategoryId workspaceCategoryId,
+      Instant recordedAt,
+      WorkspaceId workspaceId) {
+    if ((categoryCode == null) == (workspaceCategoryId == null)) {
+      throw new IllegalArgumentException(
+          "un gasto manual necesita exactamente una categoría (del catálogo General o del módulo custom)");
+    }
+    Transaction transaction = new Transaction(id, userId, rawText, recordedAt, TransactionStatus.PROCESSED);
+    transaction.money = Objects.requireNonNull(money, "money");
+    transaction.merchant = Objects.requireNonNull(merchant, "merchant");
+    transaction.type = TransactionType.EXPENSE;
+    transaction.categoryCode = categoryCode;
+    transaction.workspaceCategoryId = workspaceCategoryId;
+    transaction.workspaceId = Objects.requireNonNull(workspaceId, "workspaceId");
+    transaction.extractionSource = ExtractionSource.MANUAL;
+    transaction.processedAt = recordedAt;
+    return transaction;
+  }
+
   /** Reconstrucción desde persistencia: restaura estado sin re-aplicar invariantes de creación. */
   public static Transaction rehydrate(
       TransactionId id,
