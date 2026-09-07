@@ -193,6 +193,80 @@ class TransactionTest {
     assertThat(transaction.categoryCode()).isNull();
   }
 
+  @Test
+  void recordManualExpenseInTheGeneralModuleIsProcessedWithACatalogCategory() {
+    Transaction transaction =
+        Transaction.recordManualExpense(
+            TransactionId.newId(),
+            userId,
+            "Gasto registrado manualmente: Menú del día",
+            new Money(new BigDecimal("8.50"), "PEN"),
+            new Merchant("Menú del día"),
+            CategoryCode.COMIDA,
+            null,
+            Instant.now(),
+            generalWorkspace);
+
+    assertThat(transaction.status()).isEqualTo(TransactionStatus.PROCESSED);
+    assertThat(transaction.type()).isEqualTo(TransactionType.EXPENSE);
+    assertThat(transaction.categoryCode()).isEqualTo(CategoryCode.COMIDA);
+    assertThat(transaction.workspaceCategoryId()).isNull();
+    assertThat(transaction.extractionSource()).isEqualTo(ExtractionSource.MANUAL);
+    assertThat(transaction.pullDomainEvents()).isEmpty();
+  }
+
+  @Test
+  void recordManualExpenseInACustomModuleUsesAWorkspaceCategory() {
+    WorkspaceCategoryId categoryId = WorkspaceCategoryId.of(UUID.randomUUID());
+
+    Transaction transaction =
+        Transaction.recordManualExpense(
+            TransactionId.newId(),
+            userId,
+            "Gasto registrado manualmente: Nafta",
+            new Money(new BigDecimal("120.00"), "PEN"),
+            new Merchant("Nafta"),
+            null,
+            categoryId,
+            Instant.now(),
+            customWorkspace);
+
+    assertThat(transaction.workspaceCategoryId()).isEqualTo(categoryId);
+    assertThat(transaction.categoryCode()).isNull();
+    assertThat(transaction.workspaceId()).isEqualTo(customWorkspace);
+  }
+
+  @Test
+  void recordManualExpenseNeedsExactlyOneCategory() {
+    assertThatThrownBy(
+            () ->
+                Transaction.recordManualExpense(
+                    TransactionId.newId(),
+                    userId,
+                    "raw",
+                    new Money(new BigDecimal("1.00"), "PEN"),
+                    new Merchant("algo"),
+                    null,
+                    null,
+                    Instant.now(),
+                    generalWorkspace))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    assertThatThrownBy(
+            () ->
+                Transaction.recordManualExpense(
+                    TransactionId.newId(),
+                    userId,
+                    "raw",
+                    new Money(new BigDecimal("1.00"), "PEN"),
+                    new Merchant("algo"),
+                    CategoryCode.COMIDA,
+                    WorkspaceCategoryId.of(UUID.randomUUID()),
+                    Instant.now(),
+                    generalWorkspace))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
   private Transaction processedTransaction(CategoryCode categoryCode) {
     Transaction transaction = received("S/24.50 en Starbucks");
     transaction.categorize(

@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
+import pe.smartcash.cash.transactions.domain.model.commands.RecordManualExpenseCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.SetInternalTransferCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.UpdateTransactionCategoryCommand;
@@ -28,6 +29,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionDetail;
 import pe.smartcash.cash.transactions.domain.services.TransactionQueryService;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.CategoryResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.MoveTransactionResource;
+import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualExpenseResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualIncomeResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.SetInternalTransferResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.TransactionPageResource;
@@ -138,6 +140,25 @@ class TransactionController {
                 resource.amount(),
                 resource.currency().trim().toUpperCase(),
                 resource.source().trim(),
+                resource.workspaceId()));
+    TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
+    return ResponseEntity.status(HttpStatus.CREATED).body(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
+  }
+
+  /** Gasto cargado a mano -- para lo que no llega por correo (ej. transferencias Yape por
+   * debajo del monto que dispara la constancia). {@code categoryCode} obligatorio. */
+  @PostMapping("/expense")
+  ResponseEntity<TransactionResource> recordManualExpense(
+      @AuthenticationPrincipal String authenticatedUserId, @Valid @RequestBody RecordManualExpenseResource resource) {
+    UserId userId = UserId.parse(authenticatedUserId);
+    TransactionId id =
+        transactionCommandService.handle(
+            new RecordManualExpenseCommand(
+                userId,
+                resource.amount(),
+                resource.currency().trim().toUpperCase(),
+                resource.merchant().trim(),
+                resource.categoryCode().trim(),
                 resource.workspaceId()));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.status(HttpStatus.CREATED).body(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
