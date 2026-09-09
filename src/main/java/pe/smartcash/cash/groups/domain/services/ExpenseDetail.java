@@ -14,4 +14,5 @@ public record ExpenseDetail(
     UserId paidByUserId,
     String paidByDisplayName,
     Instant createdAt,
+    Instant updatedAt,
     List<ExpenseShareDetail> shares) {}
