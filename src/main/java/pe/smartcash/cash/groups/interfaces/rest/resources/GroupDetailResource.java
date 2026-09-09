@@ -12,4 +12,5 @@ public record GroupDetailResource(
     List<GroupMemberResource> members,
     List<ExpenseResource> expenses,
     List<SettlementResource> settlements,
-    List<SuggestedSettlementResource> simplifiedDebts) {}
+    List<SuggestedSettlementResource> simplifiedDebts,
+    GroupDeletionResource deletionRequest) {}
