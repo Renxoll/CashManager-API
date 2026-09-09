@@ -13,4 +13,5 @@ public record GroupDetail(
     List<GroupMemberDetail> members,
     List<ExpenseDetail> expenses,
     List<SettlementDetail> settlements,
-    List<SuggestedSettlementDetail> simplifiedDebts) {}
+    List<SuggestedSettlementDetail> simplifiedDebts,
+    GroupDeletionDetail deletionRequest) {}

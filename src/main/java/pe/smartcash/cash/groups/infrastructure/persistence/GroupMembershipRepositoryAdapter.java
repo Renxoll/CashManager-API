@@ -46,4 +46,9 @@ class GroupMembershipRepositoryAdapter implements GroupMembershipRepository {
   public List<GroupMembership> findAllByUserIdAndStatus(UserId userId, MembershipStatus status) {
     return jpaRepository.findAllByUserIdAndStatus(userId.value(), status.name()).stream().map(mapper::toDomain).toList();
   }
+
+  @Override
+  public void deleteAllByGroupId(GroupId groupId) {
+    jpaRepository.deleteByGroupId(groupId.value());
+  }
 }

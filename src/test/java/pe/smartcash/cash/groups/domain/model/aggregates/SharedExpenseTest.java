@@ -88,4 +88,47 @@ class SharedExpenseTest {
                     ExpenseId.newId(), groupId, "  ", new Money(new BigDecimal("10.00"), "PEN"), userA, List.of(userA, userB), Instant.now()))
         .isInstanceOf(IllegalArgumentException.class);
   }
+
+  @Test
+  void reviseShouldRecalculateSharesAndStampUpdatedAt() {
+    SharedExpense expense =
+        SharedExpense.splitEqually(
+            ExpenseId.newId(), groupId, "Hootel", new Money(new BigDecimal("100.00"), "PEN"), userA, List.of(userA, userB), Instant.now());
+
+    Instant editedAt = Instant.now();
+    expense.revise("Hotel", new Money(new BigDecimal("90.00"), "PEN"), userB, List.of(userA, userB, userC), editedAt);
+
+    assertThat(expense.description()).isEqualTo("Hotel");
+    assertThat(expense.amount()).isEqualTo(new Money(new BigDecimal("90.00"), "PEN"));
+    assertThat(expense.paidByUserId()).isEqualTo(userB);
+    assertThat(expense.updatedAt()).isEqualTo(editedAt);
+    assertThat(expense.shares())
+        .containsExactly(
+            new ExpenseShare(userA, new Money(new BigDecimal("30.00"), "PEN")),
+            new ExpenseShare(userB, new Money(new BigDecimal("30.00"), "PEN")),
+            new ExpenseShare(userC, new Money(new BigDecimal("30.00"), "PEN")));
+  }
+
+  @Test
+  void reviseShouldRejectNonPositiveAmount() {
+    SharedExpense expense =
+        SharedExpense.splitEqually(
+            ExpenseId.newId(), groupId, "Hotel", new Money(new BigDecimal("100.00"), "PEN"), userA, List.of(userA, userB), Instant.now());
+
+    assertThatThrownBy(() -> expense.revise("Hotel", new Money(BigDecimal.ZERO, "PEN"), userA, List.of(userA, userB), Instant.now()))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  void reviseShouldRejectDuplicateParticipants() {
+    SharedExpense expense =
+        SharedExpense.splitEqually(
+            ExpenseId.newId(), groupId, "Hotel", new Money(new BigDecimal("100.00"), "PEN"), userA, List.of(userA, userB), Instant.now());
+
+    assertThatThrownBy(
+            () ->
+                expense.revise(
+                    "Hotel", new Money(new BigDecimal("100.00"), "PEN"), userA, List.of(userA, userB, userA), Instant.now()))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
 }

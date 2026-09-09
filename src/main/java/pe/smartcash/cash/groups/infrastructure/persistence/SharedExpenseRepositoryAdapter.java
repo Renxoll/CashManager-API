@@ -37,7 +37,23 @@ class SharedExpenseRepositoryAdapter implements SharedExpenseRepository {
   @Override
   public void save(SharedExpense expense) {
     sharedExpenseJpaRepository.save(mapper.toJpaEntity(expense));
+    // Los shares se reemplazan en cada save: en un alta el delete no encuentra nada, en una
+    // edición (ver SharedExpense.revise) limpia los shares viejos antes de reinsertar los
+    // recalculados -- así no quedan filas duplicadas para el mismo expense_id.
+    expenseShareJpaRepository.deleteByExpenseId(expense.id().value());
     expenseShareJpaRepository.saveAll(mapper.toShareJpaEntities(expense));
+  }
+
+  @Override
+  public void deleteAllByGroupId(GroupId groupId) {
+    var expenseIds =
+        sharedExpenseJpaRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId.value()).stream()
+            .map(SharedExpenseJpaEntity::getId)
+            .toList();
+    if (!expenseIds.isEmpty()) {
+      expenseShareJpaRepository.deleteByExpenseIdIn(expenseIds);
+    }
+    sharedExpenseJpaRepository.deleteByGroupId(groupId.value());
   }
 
   @Override

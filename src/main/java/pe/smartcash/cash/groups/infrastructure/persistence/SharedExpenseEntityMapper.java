@@ -22,6 +22,7 @@ class SharedExpenseEntityMapper {
         .currency(expense.amount().currency())
         .paidByUserId(expense.paidByUserId().value())
         .createdAt(expense.createdAt())
+        .updatedAt(expense.updatedAt())
         .build();
   }
 
@@ -52,6 +53,7 @@ class SharedExpenseEntityMapper {
         amount,
         UserId.of(entity.getPaidByUserId()),
         shares,
-        entity.getCreatedAt());
+        entity.getCreatedAt(),
+        entity.getUpdatedAt());
   }
 }

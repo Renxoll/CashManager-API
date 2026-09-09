@@ -5,9 +5,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Service;
 import pe.smartcash.cash.groups.domain.exception.GroupNotFoundException;
 import pe.smartcash.cash.groups.domain.model.aggregates.Group;
+import pe.smartcash.cash.groups.domain.model.aggregates.GroupDeletionRequest;
+import pe.smartcash.cash.groups.domain.model.aggregates.GroupDeletionRequestRepository;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupMembership;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupMembershipRepository;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupRepository;
@@ -26,6 +29,7 @@ import pe.smartcash.cash.groups.domain.services.CurrencyBalance;
 import pe.smartcash.cash.groups.domain.services.DebtSimplifier;
 import pe.smartcash.cash.groups.domain.services.ExpenseDetail;
 import pe.smartcash.cash.groups.domain.services.ExpenseShareDetail;
+import pe.smartcash.cash.groups.domain.services.GroupDeletionDetail;
 import pe.smartcash.cash.groups.domain.services.GroupDetail;
 import pe.smartcash.cash.groups.domain.services.GroupMemberDetail;
 import pe.smartcash.cash.groups.domain.services.GroupQueryService;
@@ -44,6 +48,7 @@ class GroupQueryServiceImpl implements GroupQueryService {
   private final GroupMembershipRepository membershipRepository;
   private final SharedExpenseRepository sharedExpenseRepository;
   private final SettlementRepository settlementRepository;
+  private final GroupDeletionRequestRepository deletionRequestRepository;
   private final GroupBalanceReadRepository balanceReadRepository;
   private final DebtSimplifier debtSimplifier;
   private final UserDirectory userDirectory;
@@ -53,6 +58,7 @@ class GroupQueryServiceImpl implements GroupQueryService {
       GroupMembershipRepository membershipRepository,
       SharedExpenseRepository sharedExpenseRepository,
       SettlementRepository settlementRepository,
+      GroupDeletionRequestRepository deletionRequestRepository,
       GroupBalanceReadRepository balanceReadRepository,
       DebtSimplifier debtSimplifier,
       UserDirectory userDirectory) {
@@ -60,6 +66,7 @@ class GroupQueryServiceImpl implements GroupQueryService {
     this.membershipRepository = membershipRepository;
     this.sharedExpenseRepository = sharedExpenseRepository;
     this.settlementRepository = settlementRepository;
+    this.deletionRequestRepository = deletionRequestRepository;
     this.balanceReadRepository = balanceReadRepository;
     this.debtSimplifier = debtSimplifier;
     this.userDirectory = userDirectory;
@@ -95,8 +102,10 @@ class GroupQueryServiceImpl implements GroupQueryService {
     List<ExpenseDetail> expenses = sharedExpenseRepository.findAllByGroupId(query.groupId()).stream().map(this::toExpenseDetail).toList();
     List<SettlementDetail> settlements = settlementRepository.findAllByGroupId(query.groupId()).stream().map(this::toSettlementDetail).toList();
     List<SuggestedSettlementDetail> simplifiedDebts = simplifyDebts(balancesByUser);
+    GroupDeletionDetail deletionRequest = toDeletionDetail(query.groupId(), memberships);
 
-    return new GroupDetail(group.id(), group.name(), group.ownerId(), group.createdAt(), members, expenses, settlements, simplifiedDebts);
+    return new GroupDetail(
+        group.id(), group.name(), group.ownerId(), group.createdAt(), members, expenses, settlements, simplifiedDebts, deletionRequest);
   }
 
   @Override
@@ -129,7 +138,32 @@ class GroupQueryServiceImpl implements GroupQueryService {
         expense.paidByUserId(),
         displayName(expense.paidByUserId()),
         expense.createdAt(),
+        expense.updatedAt(),
         shares);
+  }
+
+  /** La solicitud de borrado PENDING del grupo, si la hay -- con los nombres a mostrar y
+   * quiénes faltan aprobar (miembros ACCEPTED que todavía no votaron). */
+  private GroupDeletionDetail toDeletionDetail(GroupId groupId, List<GroupMembership> memberships) {
+    return deletionRequestRepository
+        .findPendingByGroupId(groupId)
+        .map(
+            request -> {
+              Set<UserId> approvedBy = request.approvedBy();
+              List<UserId> pending =
+                  memberships.stream()
+                      .filter(GroupMembership::isAccepted)
+                      .map(GroupMembership::userId)
+                      .filter(userId -> !approvedBy.contains(userId))
+                      .toList();
+              return new GroupDeletionDetail(
+                  request.requestedBy(),
+                  displayName(request.requestedBy()),
+                  request.requestedAt(),
+                  List.copyOf(approvedBy),
+                  pending);
+            })
+        .orElse(null);
   }
 
   private ExpenseShareDetail toExpenseShareDetail(ExpenseShare share) {

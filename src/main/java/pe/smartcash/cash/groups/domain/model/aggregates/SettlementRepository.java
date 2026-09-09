@@ -9,4 +9,7 @@ public interface SettlementRepository {
 
   /** Más recientes primero. */
   List<Settlement> findAllByGroupId(GroupId groupId);
+
+  /** Borra todos los pagos del grupo -- parte del borrado en cascada por consenso. */
+  void deleteAllByGroupId(GroupId groupId);
 }
