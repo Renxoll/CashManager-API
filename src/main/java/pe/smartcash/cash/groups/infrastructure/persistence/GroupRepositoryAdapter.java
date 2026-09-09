@@ -26,6 +26,11 @@ class GroupRepositoryAdapter implements GroupRepository {
   }
 
   @Override
+  public void delete(GroupId id) {
+    jpaRepository.deleteById(id.value());
+  }
+
+  @Override
   public Optional<Group> findById(GroupId id) {
     return jpaRepository.findById(id.value()).map(mapper::toDomain);
   }
