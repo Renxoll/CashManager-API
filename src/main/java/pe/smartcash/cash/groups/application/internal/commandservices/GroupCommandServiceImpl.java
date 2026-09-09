@@ -1,14 +1,23 @@
 package pe.smartcash.cash.groups.application.internal.commandservices;
 
 import java.time.Clock;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.groups.domain.exception.DuplicateMembershipException;
+import pe.smartcash.cash.groups.domain.exception.ExpenseEditForbiddenException;
+import pe.smartcash.cash.groups.domain.exception.ExpenseNotFoundException;
+import pe.smartcash.cash.groups.domain.exception.GroupDeletionAlreadyRequestedException;
+import pe.smartcash.cash.groups.domain.exception.GroupDeletionRequestNotFoundException;
+import pe.smartcash.cash.groups.domain.exception.GroupHasOutstandingBalancesException;
 import pe.smartcash.cash.groups.domain.exception.GroupNotFoundException;
 import pe.smartcash.cash.groups.domain.exception.InvitedUserNotRegisteredException;
 import pe.smartcash.cash.groups.domain.exception.MembershipNotFoundException;
 import pe.smartcash.cash.groups.domain.exception.NotAGroupMemberException;
 import pe.smartcash.cash.groups.domain.model.aggregates.Group;
+import pe.smartcash.cash.groups.domain.model.aggregates.GroupDeletionRequest;
+import pe.smartcash.cash.groups.domain.model.aggregates.GroupDeletionRequestRepository;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupMembership;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupMembershipRepository;
 import pe.smartcash.cash.groups.domain.model.aggregates.GroupRepository;
@@ -18,11 +27,16 @@ import pe.smartcash.cash.groups.domain.model.aggregates.Settlement;
 import pe.smartcash.cash.groups.domain.model.aggregates.SettlementRepository;
 import pe.smartcash.cash.groups.domain.model.commands.AcceptInviteCommand;
 import pe.smartcash.cash.groups.domain.model.commands.AddExpenseCommand;
+import pe.smartcash.cash.groups.domain.model.commands.ApproveGroupDeletionCommand;
+import pe.smartcash.cash.groups.domain.model.commands.CancelGroupDeletionCommand;
 import pe.smartcash.cash.groups.domain.model.commands.CreateGroupCommand;
 import pe.smartcash.cash.groups.domain.model.commands.DeclineInviteCommand;
+import pe.smartcash.cash.groups.domain.model.commands.EditExpenseCommand;
 import pe.smartcash.cash.groups.domain.model.commands.InviteMemberCommand;
 import pe.smartcash.cash.groups.domain.model.commands.RecordSettlementCommand;
+import pe.smartcash.cash.groups.domain.model.commands.RequestGroupDeletionCommand;
 import pe.smartcash.cash.groups.domain.model.valueobjects.ExpenseId;
+import pe.smartcash.cash.groups.domain.model.valueobjects.GroupDeletionRequestId;
 import pe.smartcash.cash.groups.domain.model.valueobjects.GroupId;
 import pe.smartcash.cash.groups.domain.model.valueobjects.MembershipId;
 import pe.smartcash.cash.groups.domain.model.valueobjects.MembershipStatus;
@@ -31,6 +45,7 @@ import pe.smartcash.cash.groups.domain.model.valueobjects.SettlementId;
 import pe.smartcash.cash.groups.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.groups.domain.services.GroupCommandService;
 import pe.smartcash.cash.groups.domain.services.UserDirectory;
+import pe.smartcash.cash.groups.infrastructure.persistence.GroupBalanceReadRepository;
 
 @Service
 class GroupCommandServiceImpl implements GroupCommandService {
@@ -39,6 +54,8 @@ class GroupCommandServiceImpl implements GroupCommandService {
   private final GroupMembershipRepository membershipRepository;
   private final SharedExpenseRepository sharedExpenseRepository;
   private final SettlementRepository settlementRepository;
+  private final GroupDeletionRequestRepository deletionRequestRepository;
+  private final GroupBalanceReadRepository balanceReadRepository;
   private final UserDirectory userDirectory;
   private final Clock clock;
 
@@ -47,12 +64,16 @@ class GroupCommandServiceImpl implements GroupCommandService {
       GroupMembershipRepository membershipRepository,
       SharedExpenseRepository sharedExpenseRepository,
       SettlementRepository settlementRepository,
+      GroupDeletionRequestRepository deletionRequestRepository,
+      GroupBalanceReadRepository balanceReadRepository,
       UserDirectory userDirectory,
       Clock clock) {
     this.groupRepository = groupRepository;
     this.membershipRepository = membershipRepository;
     this.sharedExpenseRepository = sharedExpenseRepository;
     this.settlementRepository = settlementRepository;
+    this.deletionRequestRepository = deletionRequestRepository;
+    this.balanceReadRepository = balanceReadRepository;
     this.userDirectory = userDirectory;
     this.clock = clock;
   }
@@ -132,6 +153,38 @@ class GroupCommandServiceImpl implements GroupCommandService {
 
   @Override
   @Transactional
+  public void handle(EditExpenseCommand command) {
+    requireAcceptedMember(command.groupId(), command.requestingUserId());
+
+    SharedExpense expense =
+        sharedExpenseRepository
+            .findById(command.expenseId())
+            .filter(e -> e.groupId().equals(command.groupId()))
+            .orElseThrow(() -> new ExpenseNotFoundException(command.expenseId()));
+
+    Group group = groupRepository.findById(command.groupId()).orElseThrow(() -> new GroupNotFoundException(command.groupId()));
+    boolean canEdit =
+        command.requestingUserId().equals(expense.paidByUserId()) || command.requestingUserId().equals(group.ownerId());
+    if (!canEdit) {
+      throw new ExpenseEditForbiddenException();
+    }
+
+    requireAcceptedMember(command.groupId(), command.paidByUserId(), "El pagador");
+    for (UserId participant : command.participantUserIds()) {
+      requireAcceptedMember(command.groupId(), participant, "Uno de los participantes");
+    }
+
+    expense.revise(
+        command.description(),
+        new Money(command.amount(), command.currency()),
+        command.paidByUserId(),
+        command.participantUserIds(),
+        clock.instant());
+    sharedExpenseRepository.save(expense);
+  }
+
+  @Override
+  @Transactional
   public SettlementId handle(RecordSettlementCommand command) {
     requireAcceptedMember(command.groupId(), command.requestingUserId());
     requireAcceptedMember(command.groupId(), command.toUserId(), "El destinatario del pago");
@@ -140,6 +193,85 @@ class GroupCommandServiceImpl implements GroupCommandService {
     Settlement settlement = Settlement.record(SettlementId.newId(), command.groupId(), command.requestingUserId(), command.toUserId(), amount, clock.instant());
     settlementRepository.save(settlement);
     return settlement.id();
+  }
+
+  @Override
+  @Transactional
+  public void handle(RequestGroupDeletionCommand command) {
+    requireAcceptedMember(command.groupId(), command.requestingUserId());
+    deletionRequestRepository
+        .findPendingByGroupId(command.groupId())
+        .ifPresent(
+            r -> {
+              throw new GroupDeletionAlreadyRequestedException();
+            });
+
+    GroupDeletionRequest request =
+        GroupDeletionRequest.open(GroupDeletionRequestId.newId(), command.groupId(), command.requestingUserId(), clock.instant());
+    completeOrPersist(request);
+  }
+
+  @Override
+  @Transactional
+  public void handle(ApproveGroupDeletionCommand command) {
+    requireAcceptedMember(command.groupId(), command.requestingUserId());
+    GroupDeletionRequest request =
+        deletionRequestRepository
+            .findPendingByGroupId(command.groupId())
+            .orElseThrow(() -> new GroupDeletionRequestNotFoundException(command.groupId()));
+
+    request.approve(command.requestingUserId(), clock.instant());
+    completeOrPersist(request);
+  }
+
+  @Override
+  @Transactional
+  public void handle(CancelGroupDeletionCommand command) {
+    requireAcceptedMember(command.groupId(), command.requestingUserId());
+    GroupDeletionRequest request =
+        deletionRequestRepository
+            .findPendingByGroupId(command.groupId())
+            .orElseThrow(() -> new GroupDeletionRequestNotFoundException(command.groupId()));
+
+    request.cancel(clock.instant());
+    deletionRequestRepository.save(request);
+  }
+
+  /**
+   * Si con esta aprobación ya están TODOS los miembros aceptados, borra el grupo en cascada
+   * (bloqueando si hay saldos pendientes); si no, solo persiste la solicitud con el voto sumado.
+   */
+  private void completeOrPersist(GroupDeletionRequest request) {
+    GroupId groupId = request.groupId();
+    Set<UserId> acceptedMemberIds =
+        membershipRepository.findAllByGroupId(groupId).stream()
+            .filter(GroupMembership::isAccepted)
+            .map(GroupMembership::userId)
+            .collect(Collectors.toSet());
+
+    if (!request.isApprovedByAll(acceptedMemberIds)) {
+      deletionRequestRepository.save(request);
+      return;
+    }
+
+    if (hasOutstandingBalances(groupId)) {
+      throw new GroupHasOutstandingBalancesException();
+    }
+
+    request.markCompleted(clock.instant());
+
+    // Orden por las FKs de V13/V20: primero los hijos, el grupo al final.
+    sharedExpenseRepository.deleteAllByGroupId(groupId);
+    settlementRepository.deleteAllByGroupId(groupId);
+    membershipRepository.deleteAllByGroupId(groupId);
+    deletionRequestRepository.deleteAllByGroupId(groupId);
+    groupRepository.delete(groupId);
+  }
+
+  private boolean hasOutstandingBalances(GroupId groupId) {
+    return balanceReadRepository.computeNetBalances(groupId).values().stream()
+        .flatMap(byCurrency -> byCurrency.values().stream())
+        .anyMatch(amount -> amount.signum() != 0);
   }
 
   /** El requester no ve el grupo si no es miembro -- mismo 404 sea que el grupo no exista o
