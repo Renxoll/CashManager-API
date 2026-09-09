@@ -4,15 +4,18 @@ import java.util.List;
 import pe.smartcash.cash.groups.domain.services.CurrencyBalance;
 import pe.smartcash.cash.groups.domain.services.ExpenseDetail;
 import pe.smartcash.cash.groups.domain.services.ExpenseShareDetail;
+import pe.smartcash.cash.groups.domain.services.GroupDeletionDetail;
 import pe.smartcash.cash.groups.domain.services.GroupDetail;
 import pe.smartcash.cash.groups.domain.services.GroupMemberDetail;
 import pe.smartcash.cash.groups.domain.services.GroupSummary;
 import pe.smartcash.cash.groups.domain.services.PendingInviteDetail;
 import pe.smartcash.cash.groups.domain.services.SettlementDetail;
 import pe.smartcash.cash.groups.domain.services.SuggestedSettlementDetail;
+import pe.smartcash.cash.groups.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.groups.interfaces.rest.resources.CurrencyBalanceResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.ExpenseResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.ExpenseShareResource;
+import pe.smartcash.cash.groups.interfaces.rest.resources.GroupDeletionResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.GroupDetailResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.GroupMemberResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.GroupSummaryResource;
@@ -37,7 +40,20 @@ public final class GroupResourceFromEntityAssembler {
         detail.members().stream().map(GroupResourceFromEntityAssembler::toResource).toList(),
         detail.expenses().stream().map(GroupResourceFromEntityAssembler::toResource).toList(),
         detail.settlements().stream().map(GroupResourceFromEntityAssembler::toResource).toList(),
-        detail.simplifiedDebts().stream().map(GroupResourceFromEntityAssembler::toResource).toList());
+        detail.simplifiedDebts().stream().map(GroupResourceFromEntityAssembler::toResource).toList(),
+        toResource(detail.deletionRequest()));
+  }
+
+  private static GroupDeletionResource toResource(GroupDeletionDetail detail) {
+    if (detail == null) {
+      return null;
+    }
+    return new GroupDeletionResource(
+        detail.requestedBy().value(),
+        detail.requestedByDisplayName(),
+        detail.requestedAt(),
+        detail.approvedByUserIds().stream().map(UserId::value).toList(),
+        detail.pendingApprovalFrom().stream().map(UserId::value).toList());
   }
 
   public static PendingInviteResource toResource(PendingInviteDetail detail) {
@@ -58,6 +74,7 @@ public final class GroupResourceFromEntityAssembler {
         detail.paidByUserId().value(),
         detail.paidByDisplayName(),
         detail.createdAt(),
+        detail.updatedAt(),
         detail.shares().stream().map(GroupResourceFromEntityAssembler::toResource).toList());
   }
 

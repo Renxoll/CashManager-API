@@ -18,4 +18,7 @@ public interface GroupMembershipRepository {
   List<GroupMembership> findAllByGroupId(GroupId groupId);
 
   List<GroupMembership> findAllByUserIdAndStatus(UserId userId, MembershipStatus status);
+
+  /** Borra todas las membresías del grupo -- parte del borrado en cascada por consenso. */
+  void deleteAllByGroupId(GroupId groupId);
 }

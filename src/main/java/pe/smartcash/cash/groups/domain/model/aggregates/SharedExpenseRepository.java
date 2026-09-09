@@ -12,6 +12,9 @@ public interface SharedExpenseRepository {
 
   Optional<SharedExpense> findById(ExpenseId id);
 
+  /** Borra todos los gastos del grupo y sus shares -- parte del borrado en cascada por consenso. */
+  void deleteAllByGroupId(GroupId groupId);
+
   /** Más recientes primero. Sin paginado a propósito: a diferencia del historial bancario
    * de un usuario, la cantidad de gastos de un grupo puntual es chica. */
   List<SharedExpense> findAllByGroupId(GroupId groupId);

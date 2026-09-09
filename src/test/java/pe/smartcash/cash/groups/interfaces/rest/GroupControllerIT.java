@@ -1,8 +1,10 @@
 package pe.smartcash.cash.groups.interfaces.rest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -58,6 +60,8 @@ class GroupControllerIT {
 
   @BeforeEach
   void setUp() {
+    jdbcTemplate.update("DELETE FROM group_deletion_approvals");
+    jdbcTemplate.update("DELETE FROM group_deletion_requests");
     jdbcTemplate.update("DELETE FROM expense_shares");
     jdbcTemplate.update("DELETE FROM shared_expenses");
     jdbcTemplate.update("DELETE FROM settlements");
@@ -262,5 +266,133 @@ class GroupControllerIT {
         .andExpect(jsonPath("$.members[?(@.userId=='" + ownerUserId + "')].balances[0].amount").value(0.0))
         .andExpect(jsonPath("$.members[?(@.userId=='" + inviteeUserId + "')].balances[0].amount").value(0.0))
         .andExpect(jsonPath("$.simplifiedDebts.length()").value(0));
+  }
+
+  private UUID addExpense(UUID groupId, String token, String description, String amount, UUID paidBy, UUID... participants) throws Exception {
+    String participantsJson =
+        java.util.Arrays.stream(participants).map(p -> "\"" + p + "\"").collect(java.util.stream.Collectors.joining(","));
+    var response =
+        mockMvc
+            .perform(
+                post("/api/v1/groups/{groupId}/expenses", groupId)
+                    .header("Authorization", "Bearer " + token)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(
+                        "{\"description\":\"%s\",\"amount\":%s,\"currency\":\"PEN\",\"paidByUserId\":\"%s\",\"participantUserIds\":[%s]}"
+                            .formatted(description, amount, paidBy, participantsJson)))
+            .andExpect(status().isCreated())
+            .andReturn();
+    return UUID.fromString(JsonPath.read(response.getResponse().getContentAsString(), "$.expenseId").toString());
+  }
+
+  @Test
+  void shouldLetThePayerCorrectAnExpense() throws Exception {
+    UUID groupId = createGroupAsOwner();
+    inviteAndAccept(groupId);
+    UUID expenseId = addExpense(groupId, OWNER_TOKEN, "Hootel", "100.00", ownerUserId, ownerUserId, inviteeUserId);
+
+    mockMvc
+        .perform(
+            put("/api/v1/groups/{groupId}/expenses/{expenseId}", groupId, expenseId)
+                .header("Authorization", "Bearer " + OWNER_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"description":"Hotel","amount":90.00,"currency":"PEN","paidByUserId":"%s","participantUserIds":["%s","%s"]}
+                    """
+                        .formatted(ownerUserId, ownerUserId, inviteeUserId)))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(get("/api/v1/groups/{groupId}", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.expenses[0].description").value("Hotel"))
+        .andExpect(jsonPath("$.expenses[0].amount").value(90.0))
+        .andExpect(jsonPath("$.expenses[0].updatedAt").isNotEmpty())
+        .andExpect(jsonPath("$.members[?(@.userId=='" + ownerUserId + "')].balances[0].amount").value(45.0));
+  }
+
+  @Test
+  void shouldReturn403WhenAMemberWhoDidNotPayNorOwnsEditsAnExpense() throws Exception {
+    UUID groupId = createGroupAsOwner();
+    inviteAndAccept(groupId);
+    UUID expenseId = addExpense(groupId, OWNER_TOKEN, "Hotel", "100.00", ownerUserId, ownerUserId, inviteeUserId);
+
+    mockMvc
+        .perform(
+            put("/api/v1/groups/{groupId}/expenses/{expenseId}", groupId, expenseId)
+                .header("Authorization", "Bearer " + INVITEE_TOKEN)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"description":"Otra cosa","amount":10.00,"currency":"PEN","paidByUserId":"%s","participantUserIds":["%s","%s"]}
+                    """
+                        .formatted(ownerUserId, ownerUserId, inviteeUserId)))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  void shouldDeleteAGroupOnceEveryMemberApproves() throws Exception {
+    UUID groupId = createGroupAsOwner();
+    inviteAndAccept(groupId);
+
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isAccepted());
+    // Todavía falta el invitado -> el grupo sigue.
+    mockMvc
+        .perform(get("/api/v1/groups/{groupId}", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deletionRequest.pendingApprovalFrom.length()").value(1));
+
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request/approve", groupId).header("Authorization", "Bearer " + INVITEE_TOKEN))
+        .andExpect(status().isNoContent());
+
+    mockMvc
+        .perform(get("/api/v1/groups/{groupId}", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isNotFound());
+    assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM groups WHERE id = ?", Integer.class, groupId)).isZero();
+    assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM group_memberships WHERE group_id = ?", Integer.class, groupId)).isZero();
+    assertThat(jdbcTemplate.queryForObject("SELECT count(*) FROM group_deletion_requests WHERE group_id = ?", Integer.class, groupId)).isZero();
+  }
+
+  @Test
+  void shouldBlockDeletionWhileBalancesAreOutstanding() throws Exception {
+    UUID groupId = createGroupAsOwner();
+    inviteAndAccept(groupId);
+    addExpense(groupId, OWNER_TOKEN, "Hotel", "100.00", ownerUserId, ownerUserId, inviteeUserId);
+
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isAccepted());
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request/approve", groupId).header("Authorization", "Bearer " + INVITEE_TOKEN))
+        .andExpect(status().isConflict());
+
+    mockMvc
+        .perform(get("/api/v1/groups/{groupId}", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void shouldAllowRequestingDeletionAgainAfterCancelling() throws Exception {
+    UUID groupId = createGroupAsOwner();
+    inviteAndAccept(groupId);
+
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isAccepted());
+    mockMvc
+        .perform(delete("/api/v1/groups/{groupId}/deletion-request", groupId).header("Authorization", "Bearer " + INVITEE_TOKEN))
+        .andExpect(status().isNoContent());
+    mockMvc
+        .perform(post("/api/v1/groups/{groupId}/deletion-request", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isAccepted());
+
+    mockMvc
+        .perform(get("/api/v1/groups/{groupId}", groupId).header("Authorization", "Bearer " + OWNER_TOKEN))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.deletionRequest.requestedBy").value(ownerUserId.toString()));
   }
 }

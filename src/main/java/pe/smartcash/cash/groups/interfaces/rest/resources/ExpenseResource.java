@@ -13,4 +13,5 @@ public record ExpenseResource(
     UUID paidByUserId,
     String paidByDisplayName,
     Instant createdAt,
+    Instant updatedAt,
     List<ExpenseShareResource> shares) {}

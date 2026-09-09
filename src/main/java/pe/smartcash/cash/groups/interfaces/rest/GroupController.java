@@ -9,11 +9,13 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.groups.domain.model.commands.AddExpenseCommand;
 import pe.smartcash.cash.groups.domain.model.commands.CreateGroupCommand;
+import pe.smartcash.cash.groups.domain.model.commands.EditExpenseCommand;
 import pe.smartcash.cash.groups.domain.model.commands.InviteMemberCommand;
 import pe.smartcash.cash.groups.domain.model.commands.RecordSettlementCommand;
 import pe.smartcash.cash.groups.domain.model.queries.FindGroupDetailQuery;
@@ -27,6 +29,7 @@ import pe.smartcash.cash.groups.domain.services.GroupCommandService;
 import pe.smartcash.cash.groups.domain.services.GroupQueryService;
 import pe.smartcash.cash.groups.interfaces.rest.resources.AddExpenseResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.CreateGroupResource;
+import pe.smartcash.cash.groups.interfaces.rest.resources.EditExpenseResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.ExpenseCreatedResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.GroupCreatedResource;
 import pe.smartcash.cash.groups.interfaces.rest.resources.GroupDetailResource;
@@ -95,6 +98,27 @@ class GroupController {
                 UserId.of(resource.paidByUserId()),
                 participants));
     return ResponseEntity.status(HttpStatus.CREATED).body(new ExpenseCreatedResource(expenseId.value()));
+  }
+
+  @PutMapping("/{groupId}/expenses/{expenseId}")
+  ResponseEntity<Void> editExpense(
+      @PathVariable UUID groupId,
+      @PathVariable UUID expenseId,
+      @AuthenticationPrincipal String authenticatedUserId,
+      @Valid @RequestBody EditExpenseResource resource) {
+    UserId userId = UserId.parse(authenticatedUserId);
+    List<UserId> participants = resource.participantUserIds().stream().map(UserId::of).toList();
+    groupCommandService.handle(
+        new EditExpenseCommand(
+            GroupId.of(groupId),
+            ExpenseId.of(expenseId),
+            userId,
+            resource.description().trim(),
+            resource.amount(),
+            resource.currency().trim().toUpperCase(),
+            UserId.of(resource.paidByUserId()),
+            participants));
+    return ResponseEntity.noContent().build();
   }
 
   @PostMapping("/{groupId}/settlements")

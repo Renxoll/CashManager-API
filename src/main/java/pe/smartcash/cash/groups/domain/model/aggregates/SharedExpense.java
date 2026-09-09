@@ -20,16 +20,21 @@ import pe.smartcash.cash.groups.domain.model.valueobjects.UserId;
  * (los shares) porque son indivisibles del gasto: no existen fuera de su ciclo de vida ni se
  * mutan de forma independiente (ver {@code SharedExpenseRepository}, que persiste ambas
  * tablas en el mismo {@code save}).
+ *
+ * <p>Los campos corregibles ({@code description}, {@code amount}, {@code paidByUserId},
+ * {@code shares}) son mutables vía {@link #revise}: sirve para arreglar un typo en el nombre
+ * o un monto mal tipeado. {@code id}, {@code groupId} y {@code createdAt} nunca cambian.
  */
 public final class SharedExpense {
 
   private final ExpenseId id;
   private final GroupId groupId;
-  private final String description;
-  private final Money amount;
-  private final UserId paidByUserId;
-  private final List<ExpenseShare> shares;
+  private String description;
+  private Money amount;
+  private UserId paidByUserId;
+  private List<ExpenseShare> shares;
   private final Instant createdAt;
+  private Instant updatedAt;
 
   private SharedExpense(
       ExpenseId id,
@@ -38,20 +43,16 @@ public final class SharedExpense {
       Money amount,
       UserId paidByUserId,
       List<ExpenseShare> shares,
-      Instant createdAt) {
+      Instant createdAt,
+      Instant updatedAt) {
     this.id = Objects.requireNonNull(id, "id");
     this.groupId = Objects.requireNonNull(groupId, "groupId");
-    if (description == null || description.isBlank()) {
-      throw new IllegalArgumentException("description no puede estar vacío");
-    }
-    this.description = description;
-    this.amount = Objects.requireNonNull(amount, "amount");
-    if (amount.amount().signum() <= 0) {
-      throw new IllegalArgumentException("El monto del gasto debe ser positivo");
-    }
+    this.description = requireDescription(description);
+    this.amount = requirePositive(amount);
     this.paidByUserId = Objects.requireNonNull(paidByUserId, "paidByUserId");
     this.shares = List.copyOf(shares);
     this.createdAt = Objects.requireNonNull(createdAt, "createdAt");
+    this.updatedAt = updatedAt;
   }
 
   /**
@@ -69,6 +70,45 @@ public final class SharedExpense {
       UserId paidByUserId,
       List<UserId> participantUserIds,
       Instant createdAt) {
+    return new SharedExpense(
+        id,
+        groupId,
+        description,
+        requirePositive(totalAmount),
+        paidByUserId,
+        splitEqually(totalAmount, participantUserIds),
+        createdAt,
+        null);
+  }
+
+  /** Reconstrucción desde persistencia: los shares ya vienen calculados, no se recalculan. */
+  public static SharedExpense rehydrate(
+      ExpenseId id,
+      GroupId groupId,
+      String description,
+      Money amount,
+      UserId paidByUserId,
+      List<ExpenseShare> shares,
+      Instant createdAt,
+      Instant updatedAt) {
+    return new SharedExpense(id, groupId, description, amount, paidByUserId, shares, createdAt, updatedAt);
+  }
+
+  /**
+   * Corrige los datos del gasto (typo en la descripción, monto mal tipeado, pagador o
+   * participantes equivocados) y recalcula los shares con el mismo reparto equitativo que
+   * {@link #splitEqually}. Aplica las mismas invariantes que el alta.
+   */
+  public void revise(
+      String description, Money amount, UserId paidByUserId, List<UserId> participantUserIds, Instant updatedAt) {
+    this.description = requireDescription(description);
+    this.amount = requirePositive(amount);
+    this.paidByUserId = Objects.requireNonNull(paidByUserId, "paidByUserId");
+    this.shares = splitEqually(amount, participantUserIds);
+    this.updatedAt = Objects.requireNonNull(updatedAt, "updatedAt");
+  }
+
+  private static List<ExpenseShare> splitEqually(Money totalAmount, List<UserId> participantUserIds) {
     Objects.requireNonNull(totalAmount, "totalAmount");
     if (participantUserIds == null || participantUserIds.isEmpty()) {
       throw new IllegalArgumentException("Un gasto compartido necesita al menos un participante");
@@ -89,20 +129,22 @@ public final class SharedExpense {
       BigDecimal shareAmount = i < extraCentsToDistribute ? base.add(new BigDecimal("0.01")) : base;
       shares.add(new ExpenseShare(participantUserIds.get(i), new Money(shareAmount, totalAmount.currency())));
     }
-
-    return new SharedExpense(id, groupId, description, totalAmount, paidByUserId, shares, createdAt);
+    return shares;
   }
 
-  /** Reconstrucción desde persistencia: los shares ya vienen calculados, no se recalculan. */
-  public static SharedExpense rehydrate(
-      ExpenseId id,
-      GroupId groupId,
-      String description,
-      Money amount,
-      UserId paidByUserId,
-      List<ExpenseShare> shares,
-      Instant createdAt) {
-    return new SharedExpense(id, groupId, description, amount, paidByUserId, shares, createdAt);
+  private static String requireDescription(String description) {
+    if (description == null || description.isBlank()) {
+      throw new IllegalArgumentException("description no puede estar vacío");
+    }
+    return description;
+  }
+
+  private static Money requirePositive(Money amount) {
+    Objects.requireNonNull(amount, "amount");
+    if (amount.amount().signum() <= 0) {
+      throw new IllegalArgumentException("El monto del gasto debe ser positivo");
+    }
+    return amount;
   }
 
   public ExpenseId id() {
@@ -131,5 +173,9 @@ public final class SharedExpense {
 
   public Instant createdAt() {
     return createdAt;
+  }
+
+  public Instant updatedAt() {
+    return updatedAt;
   }
 }
