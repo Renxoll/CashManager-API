@@ -27,4 +27,9 @@ class SettlementRepositoryAdapter implements SettlementRepository {
   public List<Settlement> findAllByGroupId(GroupId groupId) {
     return jpaRepository.findAllByGroupIdOrderByCreatedAtDesc(groupId.value()).stream().map(mapper::toDomain).toList();
   }
+
+  @Override
+  public void deleteAllByGroupId(GroupId groupId) {
+    jpaRepository.deleteByGroupId(groupId.value());
+  }
 }
