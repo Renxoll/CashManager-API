@@ -68,9 +68,10 @@ class RateLimitingFilter extends OncePerRequestFilter {
   }
 
   /**
-   * El webhook de Stripe es público (sin Bearer, ver {@code SecurityConfig}) así que ahí no
-   * hay más identidad que la IP; el de transacciones sí exige Bearer, así que limitar por
-   * usuario evita que dos usuarios detrás del mismo NAT/proxy corporativo compartan cupo.
+   * El pedido de restablecimiento de contraseña es público (sin Bearer, ver {@code
+   * SecurityConfig}) así que ahí no hay más identidad que la IP; el de transacciones sí exige
+   * Bearer, así que limitar por usuario evita que dos usuarios detrás del mismo NAT/proxy
+   * corporativo compartan cupo.
    */
   private String resolveKey(HttpServletRequest request) {
     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
