@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 import pe.smartcash.cash.subscription.domain.exception.ActiveSubscriptionAlreadyExistsException;
+import pe.smartcash.cash.subscription.domain.exception.PaymentDeclinedException;
 import pe.smartcash.cash.subscription.domain.exception.PaymentGatewayException;
 import pe.smartcash.cash.subscription.domain.exception.SubscriptionNotFoundException;
 
@@ -27,6 +28,14 @@ class SubscriptionExceptionHandler {
   ResponseEntity<ApiError> handleNotFound(SubscriptionNotFoundException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
+  }
+
+  // 402 Payment Required: la tarjeta fue rechazada. El mensaje es el que Culqi redacta para el
+  // titular (p. ej. "Tu tarjeta no tiene fondos suficientes"), así que el frontend lo muestra tal cual.
+  @ExceptionHandler(PaymentDeclinedException.class)
+  ResponseEntity<ApiError> handlePaymentDeclined(PaymentDeclinedException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.PAYMENT_REQUIRED)
+        .body(new ApiError(Instant.now(), 402, "Payment Required", ex.getMessage(), request.getRequestURI()));
   }
 
   @ExceptionHandler(PaymentGatewayException.class)
