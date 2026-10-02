@@ -46,11 +46,14 @@ class SecurityConfig {
                         // confirm desde el enlace del correo, ninguno con Bearer.
                         "/api/v1/iam/password-reset/request",
                         "/api/v1/iam/password-reset/confirm",
-                        "/api/v1/subscriptions/stripe-webhook",
+                        // Culqi no manda Bearer; el token de query (?token=) y la relectura
+                        // del evento en la API de Culqi son la autenticación real (ver
+                        // CulqiWebhookController).
+                        "/api/v1/subscriptions/culqi-webhook",
                         // SendGrid Inbound Parse no manda Bearer (ni puede: no es un cliente
                         // de nuestra API); el token de query (?token=) en
                         // SendGridInboundWebhookController es la autenticación real acá,
-                        // igual que la firma HMAC lo es para el webhook de Stripe arriba.
+                        // igual que para el webhook de Culqi arriba.
                         "/api/v1/transactions/inbound",
                         // Google redirige el navegador acá directo tras el consentimiento:
                         // no puede mandar un header Authorization en una navegación normal,
