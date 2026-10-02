@@ -10,5 +10,5 @@ public interface SubscriptionSpringDataRepository extends JpaRepository<Subscrip
 
   Optional<SubscriptionJpaEntity> findByUserIdAndStatus(UUID userId, SubscriptionStatus status);
 
-  Optional<SubscriptionJpaEntity> findByStripeSubscriptionId(String stripeSubscriptionId);
+  Optional<SubscriptionJpaEntity> findByProviderSubscriptionId(String providerSubscriptionId);
 }
