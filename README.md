@@ -203,6 +203,40 @@ autonomía de contexto que el resto del repo); la integridad la garantiza el ACL
 | `POST /api/v1/transactions/expense` | **Nuevo.** Gasto cargado a mano (para lo que no llega por correo — ej. transferencias Yape por debajo del monto que dispara la constancia). Body: `{ "amount", "currency", "merchant", "categoryCode", "workspaceId"? }`. Nace `PROCESSED` con `extractionSource=MANUAL`, sin pasar por el LLM. `categoryCode` se valida contra el catálogo cerrado (módulo General) o contra las categorías del módulo custom; inválido → `400`. → `201` con la transacción. |
 | `GET /api/v1/analytics/monthly-summary` | Nuevo query param opcional `?workspaceId=<uuid>` — el resumen es siempre de **un** módulo (el indicado, o el "General" si se omite). El desglose por categoría se une a `categories` para el General y a `workspace_categories` para un módulo custom. `breakdown[].categoryId` es ahora un string (id bigint del catálogo o UUID de categoría de módulo). |
 
+## Pagos (Stripe Checkout)
+
+```
+Frontend /subscription ──POST /checkout {PREMIUM}──▶ backend ──crea Session──▶ Stripe
+        ◀──────────── { checkoutUrl } ─────────────          (metadata userId/planCode)
+navegador ──▶ Stripe Checkout (paga) ──redirige──▶ /subscription/success?session_id=cs_...
+Frontend ──POST /checkout/confirm {sessionId}──▶ backend ──Session.retrieve──▶ Stripe
+                                                  └─ pagado → activa PREMIUM (cierra el FREE)
+Stripe ──webhook checkout.session.completed──▶ backend (mismo punto de activación, idempotente)
+```
+
+La activación tiene dos caminos que convergen en `SubscriptionCommandServiceImpl.activatePaid`:
+la **confirmación** que dispara el frontend al volver de Stripe (no depende de que el webhook
+llegue, así funciona en dev sin Stripe CLI) y el **webhook**. Llegue primero el que llegue, el
+segundo es un no-op (se identifica el pago por `stripe_subscription_id`). Ninguno activa sin
+que Stripe confirme el cobro (`status=complete` y `payment_status=paid`).
+
+| Endpoint | Auth | Uso |
+|---|---|---|
+| `POST /api/v1/subscriptions/checkout` | Bearer | Body `{ "planCode": "FREE" \| "PREMIUM" }`. FREE → `201` con la suscripción. PREMIUM → `200 { checkoutUrl }`. Estando en FREE se puede pasar a PREMIUM; `409` si ya tiene PREMIUM; `502` si Stripe falla. |
+| `POST /api/v1/subscriptions/checkout/confirm` | Bearer | Body `{ "sessionId": "cs_..." }`. Verifica la sesión con Stripe y activa → `200` con la suscripción. `409` si el cobro aún no está confirmado (reintentar), `403` si la sesión es de otro usuario, `404` si Stripe no la conoce. |
+| `GET /api/v1/subscriptions/active` | Bearer | Suscripción activa, o `404` si no tiene. |
+| `DELETE /api/v1/subscriptions/active` | Bearer | Cancela (también en Stripe, antes de tocar la BD) → `204`. `502` si Stripe rechaza: el plan sigue activo. |
+| `POST /api/v1/subscriptions/stripe-webhook` | Firma `Stripe-Signature` | `checkout.session.completed` / `checkout.session.async_payment_succeeded` activan, `invoice.paid` renueva, `customer.subscription.deleted` expira, `invoice.payment_failed` alerta en Sentry. |
+
+**Probar en local (modo test de Stripe, gratis):** en el dashboard de Stripe en modo *Test*
+crear un Product "Premium" con un Price recurrente mensual y exportar
+`STRIPE_SECRET_KEY=sk_test_...`, `STRIPE_PREMIUM_PRICE_ID=price_...`,
+`STRIPE_SUCCESS_URL=http://localhost:5173/subscription/success` y
+`STRIPE_CANCEL_URL=http://localhost:5173/subscription/cancel`. Pagar con la tarjeta
+`4242 4242 4242 4242` (cualquier fecha futura y CVC). Con eso el flujo completo funciona sin
+webhook; para probar también el webhook: `stripe listen --forward-to localhost:8080/api/v1/subscriptions/stripe-webhook`
+y usar el `whsec_...` que imprime como `STRIPE_WEBHOOK_SECRET`.
+
 ## Arquitectura DDD
 
 Cada bounded context tiene sus 4 capas. `domain` define **contratos** (agregados, value
