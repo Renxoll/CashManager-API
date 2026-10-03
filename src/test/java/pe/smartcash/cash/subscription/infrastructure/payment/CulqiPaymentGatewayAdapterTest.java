@@ -54,7 +54,7 @@ class CulqiPaymentGatewayAdapterTest {
 
   @Test
   void subscribingCreatesCustomerCardAndSubscriptionInThatOrder() {
-    culqi.expect(requestTo(BASE + "/customers?email=ana@example.com"))
+    culqi.expect(requestTo(BASE + "/customers?email=ana%40example.com"))
         .andExpect(method(HttpMethod.GET))
         .andExpect(header("Authorization", "Bearer " + SECRET))
         .andRespond(json("""
@@ -95,7 +95,7 @@ class CulqiPaymentGatewayAdapterTest {
 
   @Test
   void anExistingCustomerWithTheSameEmailIsReusedInsteadOfCreatingAnother() {
-    culqi.expect(requestTo(BASE + "/customers?email=ana@example.com"))
+    culqi.expect(requestTo(BASE + "/customers?email=ana%40example.com"))
         .andRespond(json("""
             {"data":[{"object":"customer","id":"cus_test_existente","email":"ana@example.com"}]}"""));
     culqi.expect(requestTo(BASE + "/cards"))
@@ -152,7 +152,7 @@ class CulqiPaymentGatewayAdapterTest {
 
   @Test
   void invalidPayerDataIsADeclineSoTheUserCanFixIt() {
-    culqi.expect(requestTo(BASE + "/customers?email=ana@example.com")).andRespond(json("""
+    culqi.expect(requestTo(BASE + "/customers?email=ana%40example.com")).andRespond(json("""
         {"data":[]}"""));
     culqi.expect(requestTo(BASE + "/customers")).andRespond(json(HttpStatus.BAD_REQUEST, """
         {"object":"error","type":"parameter_error","merchant_message":"El campo address_city es inválido",
@@ -163,7 +163,7 @@ class CulqiPaymentGatewayAdapterTest {
 
   @Test
   void anInvalidSecretKeyIsAGatewayFailureNotADecline() {
-    culqi.expect(requestTo(BASE + "/customers?email=ana@example.com")).andRespond(json("""
+    culqi.expect(requestTo(BASE + "/customers?email=ana%40example.com")).andRespond(json("""
         {"data":[]}"""));
     culqi.expect(requestTo(BASE + "/customers")).andRespond(json(HttpStatus.UNAUTHORIZED, """
         {"object":"error","type":"authentication_error","merchant_message":"Llave inválida"}"""));
@@ -299,7 +299,7 @@ class CulqiPaymentGatewayAdapterTest {
   }
 
   private void givenExistingCustomer() {
-    culqi.expect(requestTo(BASE + "/customers?email=ana@example.com")).andRespond(json("""
+    culqi.expect(requestTo(BASE + "/customers?email=ana%40example.com")).andRespond(json("""
         {"data":[{"object":"customer","id":"cus_test_1"}]}"""));
   }
 
