@@ -11,12 +11,11 @@ public interface SubscriptionRepository {
   Optional<Subscription> findActiveByUserId(UserId userId);
 
   /**
-   * Los eventos de Stripe que sincronizan el ciclo de vida de una suscripción ya activada
-   * ({@code invoice.paid}, {@code customer.subscription.deleted}) no traen nuestro
-   * {@code userId} -- solo el id de la Subscription de Stripe. Por eso hace falta este índice
-   * aparte de {@link #findActiveByUserId}.
+   * Los webhooks del proveedor de pagos (cobro del período siguiente, baja por reintentos
+   * agotados) no traen nuestro {@code userId} -- solo el id de la suscripción en el proveedor.
+   * Por eso hace falta este índice aparte de {@link #findActiveByUserId}.
    */
-  Optional<Subscription> findByStripeSubscriptionId(String stripeSubscriptionId);
+  Optional<Subscription> findByProviderSubscriptionId(String providerSubscriptionId);
 
   void save(Subscription subscription);
 }

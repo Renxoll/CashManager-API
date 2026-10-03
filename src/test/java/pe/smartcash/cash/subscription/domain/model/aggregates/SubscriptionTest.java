@@ -17,32 +17,32 @@ class SubscriptionTest {
   private final Instant now = Instant.parse("2026-01-01T00:00:00Z");
 
   @Test
-  void subscribingToFreeHasNoStripeSubscriptionIdAndNeverExpires() {
+  void subscribingToFreeHasNoProviderSubscriptionIdAndNeverExpires() {
     Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.FREE, now);
 
     assertThat(subscription.status()).isEqualTo(SubscriptionStatus.ACTIVE);
-    assertThat(subscription.stripeSubscriptionId()).isNull();
+    assertThat(subscription.providerSubscriptionId()).isNull();
     assertThat(subscription.renewsAt()).isNull();
   }
 
   @Test
-  void subscribingToPremiumKeepsTheStripeSubscriptionIdAndSetsRenewalDate() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+  void subscribingToPremiumKeepsTheProviderSubscriptionIdAndSetsRenewalDate() {
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
 
     assertThat(subscription.status()).isEqualTo(SubscriptionStatus.ACTIVE);
-    assertThat(subscription.stripeSubscriptionId()).isEqualTo("sub_stripe_123");
+    assertThat(subscription.providerSubscriptionId()).isEqualTo("sxn_test_123");
     assertThat(subscription.renewsAt()).isEqualTo(now.plus(PlanCode.PREMIUM.term()));
   }
 
   @Test
-  void cancelingAnActiveSubscriptionMarksItCanceledAndKeepsTheStripeSubscriptionId() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+  void cancelingAnActiveSubscriptionMarksItCanceledAndKeepsTheProviderSubscriptionId() {
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
 
     subscription.cancel(now.plusSeconds(60));
 
     assertThat(subscription.status()).isEqualTo(SubscriptionStatus.CANCELED);
     assertThat(subscription.canceledAt()).isEqualTo(now.plusSeconds(60));
-    assertThat(subscription.stripeSubscriptionId()).isEqualTo("sub_stripe_123");
+    assertThat(subscription.providerSubscriptionId()).isEqualTo("sxn_test_123");
   }
 
   @Test
@@ -55,7 +55,7 @@ class SubscriptionTest {
 
   @Test
   void expiringAnActiveSubscriptionMarksItExpiredNotCanceled() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
 
     subscription.expire(now.plusSeconds(60));
 
@@ -65,7 +65,7 @@ class SubscriptionTest {
 
   @Test
   void expiringATerminalSubscriptionIsRejected() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
     subscription.cancel(now.plusSeconds(60));
 
     assertThatThrownBy(() -> subscription.expire(now.plusSeconds(120))).isInstanceOf(IllegalStateException.class);
@@ -73,7 +73,7 @@ class SubscriptionTest {
 
   @Test
   void renewingAnActiveSubscriptionMovesTheRenewalDateForwardFromNow() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
 
     subscription.renew(now.plusSeconds(60));
 
@@ -82,7 +82,7 @@ class SubscriptionTest {
 
   @Test
   void renewingATerminalSubscriptionIsRejected() {
-    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sub_stripe_123");
+    Subscription subscription = Subscription.subscribe(SubscriptionId.newId(), userId, PlanCode.PREMIUM, now, "sxn_test_123");
     subscription.cancel(now.plusSeconds(60));
 
     assertThatThrownBy(() -> subscription.renew(now.plusSeconds(120))).isInstanceOf(IllegalStateException.class);
@@ -96,11 +96,11 @@ class SubscriptionTest {
   }
 
   @Test
-  void rehydrateRestoresTheStripeSubscriptionId() {
+  void rehydrateRestoresTheProviderSubscriptionId() {
     Subscription subscription =
         Subscription.rehydrate(
-            SubscriptionId.newId(), userId, PlanCode.PREMIUM, SubscriptionStatus.ACTIVE, now, now.plusSeconds(60), null, "sub_stripe_123");
+            SubscriptionId.newId(), userId, PlanCode.PREMIUM, SubscriptionStatus.ACTIVE, now, now.plusSeconds(60), null, "sxn_test_123");
 
-    assertThat(subscription.stripeSubscriptionId()).isEqualTo("sub_stripe_123");
+    assertThat(subscription.providerSubscriptionId()).isEqualTo("sxn_test_123");
   }
 }

@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,6 +29,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
+import pe.smartcash.cash.RedisTestConfiguration;
 import pe.smartcash.cash.iam.domain.model.valueobjects.UserId;
 import pe.smartcash.cash.iam.domain.services.TokenService;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
@@ -47,6 +49,7 @@ import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 @SpringBootTest
 @AutoConfigureMockMvc
 @Testcontainers
+@Import(RedisTestConfiguration.class)
 class SendGridInboundWebhookControllerIT {
 
   @Container
