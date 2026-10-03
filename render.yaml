@@ -58,24 +58,18 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
 
-      # --- Stripe: pasarela de pago del contexto subscription (ver StripePaymentGatewayAdapter
-      # + StripeWebhookController). Sin estas 5, cualquier checkout PREMIUM en prod revienta con
-      # 502 (PaymentGatewayException) porque StripeProperties queda vacío -- son opcionales para
-      # que el resto de la app pueda levantar en dev/CI sin Stripe, pero no en un deploy real.
-      # secret-key y webhook-secret DEBEN ser las claves live (sk_live_/whsec_...) del dashboard
-      # de Stripe, nunca las de test. premium-price-id es el id del Price recurrente del
-      # Product PREMIUM (Product catalog del dashboard, modo live). success/cancel-url quedan
-      # sync:false en vez de un `value` fijo acá porque dependen del dominio real del frontend
-      # (que todavía puede no coincidir con el default de dev en application.properties).
-      - key: STRIPE_SECRET_KEY
+      # --- Culqi: pasarela de pago del contexto subscription (ver CulqiPaymentGatewayAdapter +
+      # CulqiWebhookController). Sin la llave y el plan, cualquier pago PREMIUM en prod responde
+      # 502 (PaymentGatewayException). En producción, CULQI_SECRET_KEY tiene que ser la llave
+      # sk_live_ del CulqiPanel (Desarrollo > API Keys) y CULQI_PREMIUM_PLAN_ID el plan pln_live_
+      # creado en el panel en modo producción. CULQI_WEBHOOK_TOKEN es un secreto aleatorio que
+      # también va en la URL del webhook registrada en el panel (Eventos > Webhooks):
+      # https://api.tuluki.com/api/v1/subscriptions/culqi-webhook?token=<CULQI_WEBHOOK_TOKEN>
+      - key: CULQI_SECRET_KEY
         sync: false
-      - key: STRIPE_WEBHOOK_SECRET
+      - key: CULQI_PREMIUM_PLAN_ID
         sync: false
-      - key: STRIPE_PREMIUM_PRICE_ID
-        sync: false
-      - key: STRIPE_SUCCESS_URL
-        sync: false
-      - key: STRIPE_CANCEL_URL
+      - key: CULQI_WEBHOOK_TOKEN
         sync: false
 
       # --- Envío de correo (SendGrid Web API v3): hoy solo el correo de "restablecer

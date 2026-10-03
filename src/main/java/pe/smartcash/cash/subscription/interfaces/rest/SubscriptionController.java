@@ -15,9 +15,11 @@ import pe.smartcash.cash.subscription.domain.exception.SubscriptionNotFoundExcep
 import pe.smartcash.cash.subscription.domain.model.queries.FindActiveSubscriptionByUserIdQuery;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.PlanCode;
 import pe.smartcash.cash.subscription.domain.model.valueobjects.UserId;
+import pe.smartcash.cash.subscription.domain.services.PremiumPaymentOutcome;
 import pe.smartcash.cash.subscription.domain.services.SubscriptionCommandService;
 import pe.smartcash.cash.subscription.domain.services.SubscriptionQueryService;
-import pe.smartcash.cash.subscription.interfaces.rest.resources.CheckoutSessionResource;
+import pe.smartcash.cash.subscription.interfaces.rest.resources.PayPremiumResource;
+import pe.smartcash.cash.subscription.interfaces.rest.resources.PremiumPaymentResource;
 import pe.smartcash.cash.subscription.interfaces.rest.resources.SubscribeResource;
 import pe.smartcash.cash.subscription.interfaces.rest.resources.SubscriptionResource;
 import pe.smartcash.cash.subscription.interfaces.rest.transform.SubscriptionCommandFromResourceAssembler;
@@ -40,22 +42,31 @@ class SubscriptionController {
     this.subscriptionQueryService = subscriptionQueryService;
   }
 
-  /**
-   * FREE no pasa por Stripe (no hay nada que cobrar): se activa igual que antes y devuelve
-   * 201 con el recurso ya creado. PREMIUM nunca se activa acá — devuelve 200 con la URL de
-   * Stripe Checkout; la activación real la dispara {@link StripeWebhookController} recién
-   * cuando Stripe confirma el pago.
-   */
+  /** Alta de un plan sin costo (FREE): no pasa por el proveedor de pagos. Los planes pagos van por {@code /premium}. */
   @PostMapping("/checkout")
-  ResponseEntity<?> checkout(@AuthenticationPrincipal String authenticatedUserId, @Valid @RequestBody SubscribeResource resource) {
-    if (PlanCode.fromCode(resource.planCode()) == PlanCode.FREE) {
-      subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toSubscribeCommand(authenticatedUserId, resource));
-      return ResponseEntity.status(HttpStatus.CREATED).body(fetch(UserId.of(UUID.fromString(authenticatedUserId))));
+  ResponseEntity<SubscriptionResource> checkout(
+      @AuthenticationPrincipal String authenticatedUserId, @Valid @RequestBody SubscribeResource resource) {
+    if (PlanCode.fromCode(resource.planCode()).term() != null) {
+      throw new IllegalArgumentException("El plan " + resource.planCode() + " es pago: usa POST /api/v1/subscriptions/premium");
     }
+    subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toSubscribeCommand(authenticatedUserId, resource));
+    return ResponseEntity.status(HttpStatus.CREATED).body(fetch(UserId.of(UUID.fromString(authenticatedUserId))));
+  }
 
-    var checkoutSession =
-        subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toStartCheckoutCommand(authenticatedUserId, resource));
-    return ResponseEntity.ok(new CheckoutSessionResource(checkoutSession.checkoutUrl()));
+  /**
+   * Cobra el plan con la tarjeta que tokenizó el checkout de Culqi. {@code 201} con la
+   * suscripción ya activa; {@code 202} si el banco pide 3DS (el frontend autentica y reenvía);
+   * {@code 402} si la tarjeta es rechazada; {@code 409} si ya tiene un plan pago; {@code 502}
+   * si Culqi falla.
+   */
+  @PostMapping("/premium")
+  ResponseEntity<?> payPremium(@AuthenticationPrincipal String authenticatedUserId, @Valid @RequestBody PayPremiumResource resource) {
+    PremiumPaymentOutcome outcome =
+        subscriptionCommandService.handle(SubscriptionCommandFromResourceAssembler.toPayPremiumCommand(authenticatedUserId, resource));
+    if (outcome == PremiumPaymentOutcome.AUTHENTICATION_REQUIRED) {
+      return ResponseEntity.status(HttpStatus.ACCEPTED).body(new PremiumPaymentResource(outcome.name()));
+    }
+    return ResponseEntity.status(HttpStatus.CREATED).body(fetch(UserId.of(UUID.fromString(authenticatedUserId))));
   }
 
   @DeleteMapping("/active")

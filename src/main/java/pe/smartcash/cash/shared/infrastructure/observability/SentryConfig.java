@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
  * Inicialización manual del SDK base de Sentry (no el starter de Spring Boot, ver el
  * comentario en {@code build.gradle}): un único {@code Sentry.init} al arrancar, después del
  * cual {@code Sentry.captureException(...)} funciona desde cualquier punto del código (ver
- * {@code GlobalExceptionHandler}, {@code StripeWebhookController},
+ * {@code GlobalExceptionHandler}, {@code SubscriptionCommandServiceImpl},
  * {@code OpenAiTransactionExtractionAdapter}). Con {@code sentry.dsn} vacío (default en
  * dev/test) el propio SDK queda en modo no-op -- no hace falta un {@code @ConditionalOnProperty}
  * propio para eso.

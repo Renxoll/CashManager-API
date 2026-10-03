@@ -39,9 +39,8 @@ dependencies {
   implementation 'org.springframework.boot:spring-boot-starter-flyway'
   implementation 'org.flywaydb:flyway-database-postgresql'
   implementation 'com.google.firebase:firebase-admin:9.4.1'
-  implementation 'com.stripe:stripe-java:33.3.0'
-  // Observabilidad: captura de excepciones no controladas + fallos de LLM/Stripe (ver
-  // GlobalExceptionHandler, StripeWebhookController, OpenAiTransactionExtractionAdapter).
+  // Observabilidad: captura de excepciones no controladas + fallos de LLM/pagos (ver
+  // GlobalExceptionHandler, SubscriptionCommandServiceImpl, OpenAiTransactionExtractionAdapter).
   // SDK base, NO el starter (sentry-spring-boot-starter-jakarta): a la fecha, ese starter
   // solo declara compatibilidad con Spring Boot 3.x -- su auto-configuración referencia
   // clases que Boot 4.1 reubicó (p. ej. RestClientCustomizer) y rompe el arranque. Se
