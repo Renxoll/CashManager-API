@@ -384,4 +384,89 @@ class TransactionControllerIT {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.totalElements").value(0));
   }
+
+  private UUID seedTransactionWithStatus(UUID userId, String status) {
+    UUID transactionId = UUID.randomUUID();
+    jdbcTemplate.update(
+        "INSERT INTO transactions (id, user_id, workspace_id, raw_text, status, extraction_source, error_message, created_at) "
+            + "VALUES (?, ?, ?, ?, ?, 'LLM', ?, now())",
+        transactionId,
+        userId,
+        workspaceIdOf(userId),
+        "Yapeo de servicio sin formato conocido",
+        status,
+        "FAILED".equals(status) ? "El LLM no devolvió un JSON válido tras reintento" : null);
+    return transactionId;
+  }
+
+  private org.springframework.test.web.servlet.ResultActions patchDetails(UUID transactionId, String json) throws Exception {
+    return mockMvc.perform(
+        patch("/api/v1/transactions/{id}/details", transactionId)
+            .header("Authorization", "Bearer " + BEARER_TOKEN)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(json));
+  }
+
+  @Test
+  void completesAFailedExpenseByHand() throws Exception {
+    UUID transactionId = seedTransactionWithStatus(ownerUserId, "FAILED");
+
+    patchDetails(transactionId, "{\"amount\":10.00,\"merchant\":\"Metropolitano\",\"categoryCode\":\"TRANSPORTE\"}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("PROCESSED"))
+        .andExpect(jsonPath("$.amount").value(10.0))
+        .andExpect(jsonPath("$.currency").value("PEN"))
+        .andExpect(jsonPath("$.merchant").value("Metropolitano"))
+        .andExpect(jsonPath("$.categoryCode").value("TRANSPORTE"))
+        .andExpect(jsonPath("$.type").value("EXPENSE"));
+
+    String source = jdbcTemplate.queryForObject("SELECT extraction_source FROM transactions WHERE id = ?", String.class, transactionId);
+    String error = jdbcTemplate.queryForObject("SELECT error_message FROM transactions WHERE id = ?", String.class, transactionId);
+    assertThat(source).isEqualTo("MANUAL");
+    assertThat(error).isNull();
+  }
+
+  @Test
+  void aFailedExpenseNeedsACategoryToBeCompleted() throws Exception {
+    UUID transactionId = seedTransactionWithStatus(ownerUserId, "FAILED");
+
+    patchDetails(transactionId, "{\"amount\":10.00,\"merchant\":\"Metropolitano\"}").andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void correctsTheMerchantAndAmountOfAProcessedExpenseKeepingItsCategory() throws Exception {
+    UUID transactionId = seedProcessedTransaction(ownerUserId, "COMIDA");
+
+    patchDetails(transactionId, "{\"amount\":31.90,\"merchant\":\"Bembos\",\"categoryCode\":\"TRANSPORTE\"}")
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.merchant").value("Bembos"))
+        .andExpect(jsonPath("$.amount").value(31.9))
+        .andExpect(jsonPath("$.categoryCode").value("COMIDA"));
+  }
+
+  @Test
+  void aPendingTransactionCannotBeEditedYet() throws Exception {
+    UUID transactionId = seedTransactionWithStatus(ownerUserId, "PENDING");
+
+    patchDetails(transactionId, "{\"amount\":10.00,\"merchant\":\"Metropolitano\",\"categoryCode\":\"TRANSPORTE\"}")
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void anIncomeCannotBeEditedThroughTheExpenseEndpoint() throws Exception {
+    UUID transactionId = seedProcessedIncomeTransaction(ownerUserId);
+
+    patchDetails(transactionId, "{\"amount\":10.00,\"merchant\":\"Sueldo\"}").andExpect(status().isConflict());
+  }
+
+  @Test
+  void rejectsInvalidDetailsAndSomeoneElsesTransaction() throws Exception {
+    UUID own = seedTransactionWithStatus(ownerUserId, "FAILED");
+    UUID others = seedTransactionWithStatus(otherUserId, "FAILED");
+
+    patchDetails(own, "{\"amount\":0,\"merchant\":\"X\",\"categoryCode\":\"OTROS\"}").andExpect(status().isBadRequest());
+    patchDetails(own, "{\"amount\":5,\"merchant\":\"  \",\"categoryCode\":\"OTROS\"}").andExpect(status().isBadRequest());
+    patchDetails(own, "{\"amount\":5,\"merchant\":\"X\",\"categoryCode\":\"NO_EXISTE\"}").andExpect(status().isBadRequest());
+    patchDetails(others, "{\"amount\":5,\"merchant\":\"X\",\"categoryCode\":\"OTROS\"}").andExpect(status().isNotFound());
+  }
 }

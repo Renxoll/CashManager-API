@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
+import pe.smartcash.cash.transactions.domain.model.commands.CorrectTransactionDetailsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualExpenseCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.RecordManualIncomeCommand;
@@ -28,6 +29,7 @@ import pe.smartcash.cash.transactions.domain.services.TransactionCommandService;
 import pe.smartcash.cash.transactions.domain.services.TransactionDetail;
 import pe.smartcash.cash.transactions.domain.services.TransactionQueryService;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.CategoryResource;
+import pe.smartcash.cash.transactions.interfaces.rest.resources.CorrectTransactionDetailsResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.MoveTransactionResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualExpenseResource;
 import pe.smartcash.cash.transactions.interfaces.rest.resources.RecordManualIncomeResource;
@@ -98,6 +100,22 @@ class TransactionController {
     // El code llega crudo: el caso de uso lo valida contra el catálogo cerrado (módulo
     // General) o contra las categorías del módulo custom, según dónde viva la transacción.
     transactionCommandService.handle(new UpdateTransactionCategoryCommand(id, userId, resource.categoryCode()));
+    TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
+    return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
+  }
+
+  /** Completa a mano un gasto que Luki no pudo leer (FAILED: monto + comercio + categoría) o
+   * corrige el monto y el comercio de uno ya leído (p. ej. "Comercio desconocido"). */
+  @PatchMapping("/{transactionId}/details")
+  ResponseEntity<TransactionResource> correctDetails(
+      @PathVariable UUID transactionId,
+      @AuthenticationPrincipal String authenticatedUserId,
+      @Valid @RequestBody CorrectTransactionDetailsResource resource) {
+    TransactionId id = TransactionId.of(transactionId);
+    UserId userId = UserId.parse(authenticatedUserId);
+    transactionCommandService.handle(
+        new CorrectTransactionDetailsCommand(
+            id, userId, resource.amount(), resource.currency(), resource.merchant().trim(), resource.categoryCode()));
     TransactionDetail detail = requireOwnedTransaction(id, authenticatedUserId);
     return ResponseEntity.ok(TransactionResourceFromEntityAssembler.toResourceFromEntity(detail));
   }

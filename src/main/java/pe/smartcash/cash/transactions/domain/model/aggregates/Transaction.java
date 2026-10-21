@@ -217,6 +217,40 @@ public final class Transaction {
   }
 
   /**
+   * El usuario completa a mano un gasto que quedó FAILED: mismo resultado final que {@link
+   * #retryExtraction}, pero el dato lo escribe él ({@code ExtractionSource.MANUAL}) y no emite
+   * {@link TransactionCategorized} -- no tiene sentido notificar por push algo que el propio
+   * usuario acaba de teclear. Siempre es un GASTO: los ingresos no llegan por correo.
+   */
+  public void completeManually(Money money, Merchant merchant, CategoryCode categoryCode, Instant processedAt) {
+    requireStatus(TransactionStatus.FAILED, "completar a mano");
+    this.money = Objects.requireNonNull(money, "money");
+    this.merchant = Objects.requireNonNull(merchant, "merchant");
+    this.type = TransactionType.EXPENSE;
+    this.categoryCode = Objects.requireNonNull(categoryCode, "categoryCode");
+    this.workspaceCategoryId = null;
+    this.extractionSource = ExtractionSource.MANUAL;
+    this.processedAt = Objects.requireNonNull(processedAt, "processedAt");
+    this.errorMessage = null;
+    this.status = TransactionStatus.PROCESSED;
+  }
+
+  /**
+   * Corrección manual de monto y comercio de un gasto ya leído (p. ej. el LLM dejó "Desconocido").
+   * La categoría y el módulo no se tocan. Una transferencia propia no se edita: está fuera de
+   * los totales y su monto no es un gasto.
+   */
+  public void correctDetails(Money money, Merchant merchant) {
+    requireStatus(TransactionStatus.PROCESSED, "corregir");
+    if (this.type != TransactionType.EXPENSE || this.internalTransfer) {
+      throw new IllegalStateException("Solo se puede corregir un gasto que no sea transferencia propia");
+    }
+    this.money = Objects.requireNonNull(money, "money");
+    this.merchant = Objects.requireNonNull(merchant, "merchant");
+    this.extractionSource = ExtractionSource.MANUAL;
+  }
+
+  /**
    * Corrección manual de categoría por el usuario, después de que el LLM ya categorizó. Solo
    * toca {@code categoryCode} -- monto, comercio y estado quedan intactos. No emite evento de
    * dominio: hoy no hay ningún listener que necesite reaccionar a una recategorización (el
