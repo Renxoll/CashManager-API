@@ -9,10 +9,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import pe.smartcash.cash.shared.infrastructure.llm.GroqProperties;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
@@ -79,9 +75,6 @@ class GroqTransactionExtractionAdapter {
 
     String content = response.choices().get(0).message().content();
     ExtractedTransactionPayload payload = objectMapper.readValue(content, ExtractedTransactionPayload.class);
-    // Mismo criterio que el adapter primario: siempre EXPENSE, los ingresos se registran a
-    // mano (ver TransactionCommandServiceImpl.handle(RecordManualIncomeCommand)).
-    return new ExtractionResult(
-        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), CategoryCode.fromCode(payload.categoria()), TransactionType.EXPENSE);
+    return payload.toResult();
   }
 }

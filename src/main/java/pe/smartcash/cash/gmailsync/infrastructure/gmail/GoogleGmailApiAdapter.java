@@ -4,8 +4,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -180,7 +183,44 @@ class GoogleGmailApiAdapter implements GmailMessagePort {
     return new String(Base64.getUrlDecoder().decode(data), StandardCharsets.UTF_8);
   }
 
-  private String stripHtml(String html) {
-    return html.replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " ").trim();
+  /**
+   * Los correos de Yape y varios bancos son HTML de marketing con un {@code <head>} y bloques
+   * {@code <style>} enormes: quitar solo las etiquetas dejaba todo ese CSS como "texto", y el
+   * monto y el comercio quedaban enterrados al final -- o el mensaje excedía lo que el LLM
+   * acepta y la extracción fallaba. Por eso se descartan {@code head/style/script} y los
+   * comentarios con su contenido, y se decodifican las entidades (un "Cr&eacute;dito" no debe
+   * llegar así al LLM ni al parser).
+   */
+  static String stripHtml(String html) {
+    String text =
+        html.replaceAll("(?is)<!--.*?-->", " ")
+            .replaceAll("(?is)<(head|style|script)\\b[^>]*>.*?</\\1\\s*>", " ")
+            .replaceAll("<[^>]+>", " ");
+    return decodeEntities(text).replaceAll("\\s+", " ").trim();
+  }
+
+  private static final Pattern NUMERIC_ENTITY = Pattern.compile("&#(x?)([0-9a-fA-F]{1,6});");
+  private static final Map<String, String> NAMED_ENTITIES =
+      Map.ofEntries(
+          Map.entry("&nbsp;", " "), Map.entry("&amp;", "&"), Map.entry("&lt;", "<"), Map.entry("&gt;", ">"),
+          Map.entry("&quot;", "\""), Map.entry("&apos;", "'"), Map.entry("&aacute;", "á"), Map.entry("&eacute;", "é"),
+          Map.entry("&iacute;", "í"), Map.entry("&oacute;", "ó"), Map.entry("&uacute;", "ú"), Map.entry("&ntilde;", "ñ"),
+          Map.entry("&Aacute;", "Á"), Map.entry("&Eacute;", "É"), Map.entry("&Iacute;", "Í"), Map.entry("&Oacute;", "Ó"),
+          Map.entry("&Uacute;", "Ú"), Map.entry("&Ntilde;", "Ñ"), Map.entry("&iexcl;", "¡"), Map.entry("&iquest;", "¿"));
+
+  private static String decodeEntities(String text) {
+    String result = text;
+    for (Map.Entry<String, String> entity : NAMED_ENTITIES.entrySet()) {
+      result = result.replace(entity.getKey(), entity.getValue());
+    }
+    Matcher matcher = NUMERIC_ENTITY.matcher(result);
+    StringBuilder out = new StringBuilder();
+    while (matcher.find()) {
+      int codePoint = Integer.parseInt(matcher.group(2), matcher.group(1).isEmpty() ? 10 : 16);
+      String replacement = Character.isValidCodePoint(codePoint) ? new String(Character.toChars(codePoint)) : " ";
+      matcher.appendReplacement(out, Matcher.quoteReplacement(replacement));
+    }
+    matcher.appendTail(out);
+    return out.toString();
   }
 }
