@@ -26,7 +26,7 @@ notification al usuario. La API está protegida por autenticación Bearer token.
 |---|---|
 | **`iam`** | Protección de la API: registro/login, hasheo de contraseñas (BCrypt), emisión y validación del Bearer token. Restablecimiento de contraseña por correo (token de un solo uso, enviado vía SendGrid, endpoints anti-enumeración). |
 | **`profile`** | Registro y guardado de perfiles de usuario: nombre visible, token FCM para notificaciones. |
-| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Stripe Checkout, con el ciclo de vida sincronizado en ambos sentidos: cancelar en la app cancela también en Stripe, y los webhooks `checkout.session.completed` / `invoice.paid` / `customer.subscription.deleted` activan, renuevan y dan de baja la suscripción local cuando el cambio se origina en Stripe. |
+| **`subscription`** | Suscripciones de la plataforma: alta a un plan, cancelación, invariante de una sola suscripción activa por usuario. Pasarela de pago vía Culqi (plan PREMIUM, cobro recurrente con tarjeta), con el ciclo de vida sincronizado en ambos sentidos: cancelar en la app cancela también en Culqi, y los webhooks `subscription.charge.succeeded` / `subscription.charge.failed` / `subscription.cancel.succeeded` renuevan, alertan y dan de baja la suscripción local cuando el cambio se origina en Culqi. |
 | **`transactions`** | El dominio core: ingesta y categorización de gastos (ver flujo abajo). Cada transacción vive en un **módulo** (ver `workspaces`). |
 | **`workspaces`** | "Módulos": el usuario separa sus gastos en varios contenedores renombrables y personalizables (color/ícono) — p. ej. "Empresa", "Hijo", "Inversiones" — cada uno con su propia lista de categorías, aparte del módulo "General" al que cae la ingesta automática. Ver [Módulos](#módulos-workspaces) abajo. |
 | **`analytics`** | Read model para el dashboard: resumen mensual de gasto/ingreso por moneda y desglose por categoría, acotado a un módulo. |
@@ -203,39 +203,45 @@ autonomía de contexto que el resto del repo); la integridad la garantiza el ACL
 | `POST /api/v1/transactions/expense` | **Nuevo.** Gasto cargado a mano (para lo que no llega por correo — ej. transferencias Yape por debajo del monto que dispara la constancia). Body: `{ "amount", "currency", "merchant", "categoryCode", "workspaceId"? }`. Nace `PROCESSED` con `extractionSource=MANUAL`, sin pasar por el LLM. `categoryCode` se valida contra el catálogo cerrado (módulo General) o contra las categorías del módulo custom; inválido → `400`. → `201` con la transacción. |
 | `GET /api/v1/analytics/monthly-summary` | Nuevo query param opcional `?workspaceId=<uuid>` — el resumen es siempre de **un** módulo (el indicado, o el "General" si se omite). El desglose por categoría se une a `categories` para el General y a `workspace_categories` para un módulo custom. `breakdown[].categoryId` es ahora un string (id bigint del catálogo o UUID de categoría de módulo). |
 
-## Pagos (Stripe Checkout)
+## Pagos (Culqi)
+
+Culqi es la única pasarela (Stripe no soporta Perú). El checkout de Culqi corre en el
+frontend con la llave pública `pk_`: tokeniza la tarjeta y el backend cobra con la llave
+secreta `sk_`, creando cliente + tarjeta + suscripción al plan `CULQI_PREMIUM_PLAN_ID`.
 
 ```
-Frontend /subscription ──POST /checkout {PREMIUM}──▶ backend ──crea Session──▶ Stripe
-        ◀──────────── { checkoutUrl } ─────────────          (metadata userId/planCode)
-navegador ──▶ Stripe Checkout (paga) ──redirige──▶ /subscription/success?session_id=cs_...
-Frontend ──POST /checkout/confirm {sessionId}──▶ backend ──Session.retrieve──▶ Stripe
-                                                  └─ pagado → activa PREMIUM (cierra el FREE)
-Stripe ──webhook checkout.session.completed──▶ backend (mismo punto de activación, idempotente)
+Frontend (checkout de Culqi, pk_) ──tokeniza la tarjeta──▶ token
+Frontend ──POST /premium {token, payer, 3DS?}──▶ backend ──cliente + tarjeta + suscripción──▶ Culqi
+        ◀── 201 suscripción activa │ 202 AUTHENTICATION_REQUIRED (3DS) │ 402 tarjeta rechazada
+Frontend (si 202) autentica 3DS y reenvía el mismo POST /premium con los datos 3DS
+Culqi ──webhook subscription.charge.*──▶ backend (renueva / alerta / expira)
 ```
 
-La activación tiene dos caminos que convergen en `SubscriptionCommandServiceImpl.activatePaid`:
-la **confirmación** que dispara el frontend al volver de Stripe (no depende de que el webhook
-llegue, así funciona en dev sin Stripe CLI) y el **webhook**. Llegue primero el que llegue, el
-segundo es un no-op (se identifica el pago por `stripe_subscription_id`). Ninguno activa sin
-que Stripe confirme el cobro (`status=complete` y `payment_status=paid`).
+Culqi no firma sus webhooks, así que la autenticación es en dos capas: el `?token=` de la URL
+registrada en el CulqiPanel (`CULQI_WEBHOOK_TOKEN`, comparado en tiempo constante) y, del
+cuerpo, solo se toma el `id` del evento, que se vuelve a leer de la API de Culqi con la llave
+secreta antes de actuar (`CulqiWebhookController`, `SubscriptionPaymentGateway#verifyEvent`).
+Un evento inventado no existe en Culqi y se ignora.
 
 | Endpoint | Auth | Uso |
 |---|---|---|
-| `POST /api/v1/subscriptions/checkout` | Bearer | Body `{ "planCode": "FREE" \| "PREMIUM" }`. FREE → `201` con la suscripción. PREMIUM → `200 { checkoutUrl }`. Estando en FREE se puede pasar a PREMIUM; `409` si ya tiene PREMIUM; `502` si Stripe falla. |
-| `POST /api/v1/subscriptions/checkout/confirm` | Bearer | Body `{ "sessionId": "cs_..." }`. Verifica la sesión con Stripe y activa → `200` con la suscripción. `409` si el cobro aún no está confirmado (reintentar), `403` si la sesión es de otro usuario, `404` si Stripe no la conoce. |
+| `POST /api/v1/subscriptions/checkout` | Bearer | Body `{ "planCode": "FREE" }`. Alta del plan sin costo → `201` con la suscripción. Los planes pagos van por `/premium`. |
+| `POST /api/v1/subscriptions/premium` | Bearer | Cobra PREMIUM con la tarjeta tokenizada (`PayPremiumResource`: token, datos del pagador y, si aplica, datos 3DS). `201` con la suscripción activa; `202 { "outcome": "AUTHENTICATION_REQUIRED" }` si el banco pide 3DS; `402` si la tarjeta es rechazada; `409` si ya tiene un plan pago; `502` si Culqi falla. Estando en FREE se puede pasar a PREMIUM. |
 | `GET /api/v1/subscriptions/active` | Bearer | Suscripción activa, o `404` si no tiene. |
-| `DELETE /api/v1/subscriptions/active` | Bearer | Cancela (también en Stripe, antes de tocar la BD) → `204`. `502` si Stripe rechaza: el plan sigue activo. |
-| `POST /api/v1/subscriptions/stripe-webhook` | Firma `Stripe-Signature` | `checkout.session.completed` / `checkout.session.async_payment_succeeded` activan, `invoice.paid` renueva, `customer.subscription.deleted` expira, `invoice.payment_failed` alerta en Sentry. |
+| `DELETE /api/v1/subscriptions/active` | Bearer | Cancela (también en Culqi, antes de tocar la BD) → `204`. `502` si Culqi rechaza: el plan sigue activo. |
+| `POST /api/v1/subscriptions/culqi-webhook?token=...` | Token en la URL | `subscription.charge.succeeded` renueva, `subscription.cancel.succeeded` expira, `subscription.charge.failed` alerta en Sentry. Siempre `200` si el token es válido; `403` si no. |
 
-**Probar en local (modo test de Stripe, gratis):** en el dashboard de Stripe en modo *Test*
-crear un Product "Premium" con un Price recurrente mensual y exportar
-`STRIPE_SECRET_KEY=sk_test_...`, `STRIPE_PREMIUM_PRICE_ID=price_...`,
-`STRIPE_SUCCESS_URL=http://localhost:5173/subscription/success` y
-`STRIPE_CANCEL_URL=http://localhost:5173/subscription/cancel`. Pagar con la tarjeta
-`4242 4242 4242 4242` (cualquier fecha futura y CVC). Con eso el flujo completo funciona sin
-webhook; para probar también el webhook: `stripe listen --forward-to localhost:8080/api/v1/subscriptions/stripe-webhook`
-y usar el `whsec_...` que imprime como `STRIPE_WEBHOOK_SECRET`.
+La suscripción se identifica por `providerSubscriptionId` (id `sxn_...` de Culqi).
+
+**Variables:** `CULQI_SECRET_KEY` (`sk_test_`/`sk_live_`), `CULQI_PREMIUM_PLAN_ID` (plan `pln_`
+creado en el CulqiPanel; monto y frecuencia viven allá), `CULQI_WEBHOOK_TOKEN` (secreto
+aleatorio), y opcionales `CULQI_API_BASE_URL` y `CULQI_TIMEOUT`.
+
+**Probar en local (modo integración de Culqi, gratis):** en el CulqiPanel, en modo
+integración, copiar las llaves `sk_test_`/`pk_test_` y crear un plan mensual "Premium".
+Exportar `CULQI_SECRET_KEY` y `CULQI_PREMIUM_PLAN_ID`, y usar la `pk_test_` en el frontend.
+Pagar con la tarjeta de prueba de Culqi (ver su documentación). Para probar el webhook desde
+local hay que exponer el backend con un túnel y registrar esa URL en el panel.
 
 ## Arquitectura DDD
 
@@ -289,8 +295,8 @@ pe.smartcash.cash
 │   ├── application/internal/{commandservices,queryservices}/  *Impl
 │   ├── infrastructure/
 │   │   ├── persistence/   JPA entity + mapper + adapter (tabla subscriptions)
-│   │   └── payment/       StripePaymentGatewayAdapter (único que importa com.stripe.*) + config
-│   └── interfaces/rest/   SubscriptionController + StripeWebhookController + resources/transform
+│   │   └── payment/       CulqiPaymentGatewayAdapter (único que habla con la API de Culqi) + config
+│   └── interfaces/rest/   SubscriptionController + CulqiWebhookController + resources/transform
 │
 ├── workspaces/                            [módulos: contenedores de gasto por usuario]
 │   ├── domain/
@@ -427,7 +433,7 @@ a tener sesión — `/api/v1/iam/sign-up`, `sign-in`, `refresh`, `password-reset
   no necesitan API key. En prod: `SENDGRID_ENABLED=true` + `SENDGRID_API_KEY` (permiso *Mail
   Send*) + `SENDGRID_FROM_EMAIL` (remitente verificado) + `PASSWORD_RESET_LINK_BASE_URL`
   (una vista real del frontend, no de este backend). El endpoint `request` está rate-limited
-  por IP/usuario (mismo filtro que ingesta de transacciones y webhook de Stripe). Las
+  por IP/usuario (mismo filtro que ingesta de transacciones y webhook de Culqi). Las
   sesiones ya emitidas siguen válidas hasta expirar (el token HMAC stateless no tiene
   revocación por-usuario) — asumido aceptable para el MVP.
 
@@ -461,8 +467,8 @@ Migraciones Flyway en `src/main/resources/db/migration/`:
   contexto).
 - **`V16__add_stripe_subscription_id_to_subscriptions.sql`**: `subscriptions.stripe_subscription_id`
   (NULL para FREE y para suscripciones PREMIUM activadas antes de este cambio). Es lo que
-  permite a `CancelSubscriptionCommand` cancelar también del lado de Stripe, no solo local
-  — antes de esto, cancelar en la app no detenía el cobro recurrente en Stripe.
+  permite a `CancelSubscriptionCommand` cancelar también del lado de la pasarela, no solo
+  local. `V21` la renombró a `provider_subscription_id` al pasar de Stripe a Culqi.
 - **`V17__create_password_reset_tokens.sql`**: tabla `password_reset_tokens` para el flujo
   "olvidé mi contraseña" de IAM. Guarda solo el SHA-256 del token (nunca el crudo, que vive
   únicamente en el enlace del correo), su `expires_at` y `redeemed_at` (un solo uso). Sin FK
@@ -506,7 +512,7 @@ password_reset_tokens (id UUID PK, user_id UUID, token_hash VARCHAR UNIQUE,
 user_profiles (id UUID PK, display_name VARCHAR, fcm_token TEXT, inbox_address VARCHAR,
                created_at, updated_at)
 subscriptions (id UUID PK, user_id UUID, plan_code VARCHAR, status VARCHAR,
-               started_at, renews_at, canceled_at, stripe_subscription_id VARCHAR)
+               started_at, renews_at, canceled_at, provider_subscription_id VARCHAR)
 ```
 
 No hay FKs entre `credentials`, `user_profiles`, `subscriptions` ni `workspaces`: cada

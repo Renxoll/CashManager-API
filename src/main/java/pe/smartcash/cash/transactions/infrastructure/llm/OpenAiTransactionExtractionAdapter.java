@@ -8,10 +8,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.CategoryCode;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.Merchant;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.Money;
-import pe.smartcash.cash.transactions.domain.model.valueobjects.TransactionType;
 import pe.smartcash.cash.transactions.domain.services.ExtractionResult;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -112,13 +108,7 @@ class OpenAiTransactionExtractionAdapter {
 
     String content = response.choices().get(0).message().content();
     ExtractedTransactionPayload payload = objectMapper.readValue(content, ExtractedTransactionPayload.class);
-    // Siempre EXPENSE acá a propósito: se probó pedirle al LLM que distinga depósito vs.
-    // gasto (campo "tipo"), pero en la práctica al usuario casi nunca le llegan
-    // notificaciones de correo de sus propios depósitos -- solo de sus gastos -- así que
-    // intentar detectar ingresos desde el correo era ruido, no señal. Los ingresos ahora se
-    // registran a mano (ver TransactionCommandServiceImpl.handle(RecordManualIncomeCommand)).
-    return new ExtractionResult(
-        new Money(payload.monto(), payload.moneda()), new Merchant(payload.comercio()), CategoryCode.fromCode(payload.categoria()), TransactionType.EXPENSE);
+    return payload.toResult();
   }
 
   private static JsonNode parseSchema(ObjectMapper objectMapper) {
