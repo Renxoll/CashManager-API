@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import pe.smartcash.cash.shared.interfaces.rest.ApiError;
 import pe.smartcash.cash.transactions.domain.exception.PendingSenderNotFoundException;
+import pe.smartcash.cash.transactions.domain.exception.TransactionNotEditableException;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.WorkspaceNotAccessibleException;
@@ -47,5 +48,11 @@ class TransactionExceptionHandler {
   ResponseEntity<ApiError> handleWorkspaceNotAccessible(WorkspaceNotAccessibleException ex, HttpServletRequest request) {
     return ResponseEntity.status(HttpStatus.NOT_FOUND)
         .body(new ApiError(Instant.now(), 404, "Not Found", ex.getMessage(), request.getRequestURI()));
+  }
+
+  @ExceptionHandler(TransactionNotEditableException.class)
+  ResponseEntity<ApiError> handleTransactionNotEditable(TransactionNotEditableException ex, HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(new ApiError(Instant.now(), 409, "Conflict", ex.getMessage(), request.getRequestURI()));
   }
 }
