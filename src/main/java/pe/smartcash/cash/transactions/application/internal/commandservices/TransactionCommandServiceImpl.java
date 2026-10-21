@@ -1,6 +1,7 @@
 package pe.smartcash.cash.transactions.application.internal.commandservices;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -11,11 +12,13 @@ import org.springframework.modulith.events.ApplicationModuleListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import pe.smartcash.cash.transactions.domain.exception.TransactionExtractionFailedException;
+import pe.smartcash.cash.transactions.domain.exception.TransactionNotEditableException;
 import pe.smartcash.cash.transactions.domain.exception.TransactionNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.UserNotFoundException;
 import pe.smartcash.cash.transactions.domain.exception.WorkspaceNotAccessibleException;
 import pe.smartcash.cash.transactions.domain.model.aggregates.Transaction;
 import pe.smartcash.cash.transactions.domain.model.aggregates.TransactionRepository;
+import pe.smartcash.cash.transactions.domain.model.commands.CorrectTransactionDetailsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
@@ -258,6 +261,41 @@ class TransactionCommandServiceImpl implements TransactionCommandService {
               .orElseThrow(
                   () -> new IllegalArgumentException("La categoría " + command.categoryCode() + " no existe en ese módulo"));
       transaction.recategorizeWithin(WorkspaceCategoryId.of(categoryId));
+    }
+    transactionRepository.save(transaction);
+  }
+
+  @Override
+  @Transactional
+  public void handle(CorrectTransactionDetailsCommand command) {
+    Transaction transaction =
+        transactionRepository
+            .findById(command.transactionId())
+            .filter(t -> t.userId().equals(command.requestingUserId()))
+            .orElseThrow(() -> new TransactionNotFoundException(command.transactionId()));
+
+    String currency = command.currency() == null || command.currency().isBlank() ? "PEN" : command.currency().trim().toUpperCase(Locale.ROOT);
+    Money money = new Money(command.amount(), currency);
+    Merchant merchant = new Merchant(command.merchant());
+    Instant now = clock.instant();
+
+    switch (transaction.status()) {
+      case FAILED -> {
+        if (command.categoryCode() == null || command.categoryCode().isBlank()) {
+          throw new IllegalArgumentException("Completar un gasto a mano requiere una categoría");
+        }
+        // Valor estricto: un código inválido es un error del caller (400), no se cuela como OTROS.
+        CategoryCode code = CategoryCode.valueOf(command.categoryCode().trim().toUpperCase(Locale.ROOT));
+        transaction.completeManually(money, merchant, code, now);
+        merchantCategoryCache.remember(merchant, code);
+      }
+      case PROCESSED -> {
+        if (transaction.type() != TransactionType.EXPENSE || transaction.internalTransfer()) {
+          throw new TransactionNotEditableException(transaction.id(), "solo se editan gastos que no sean transferencias propias");
+        }
+        transaction.correctDetails(money, merchant);
+      }
+      default -> throw new TransactionNotEditableException(transaction.id(), "todavía se está procesando");
     }
     transactionRepository.save(transaction);
   }

@@ -1,6 +1,7 @@
 package pe.smartcash.cash.transactions.domain.services;
 
 import java.util.Optional;
+import pe.smartcash.cash.transactions.domain.model.commands.CorrectTransactionDetailsCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestBankNotificationCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.IngestEmailedTransactionCommand;
 import pe.smartcash.cash.transactions.domain.model.commands.MoveTransactionToWorkspaceCommand;
@@ -61,4 +62,11 @@ public interface TransactionCommandService {
    * se valida contra el catálogo cerrado (módulo General) o contra las categorías del módulo
    * destino, y un código inválido es un 400. */
   TransactionId handle(RecordManualExpenseCommand command);
+
+  /**
+   * Completa a mano un gasto FAILED (monto + comercio + categoría) o corrige el monto y el
+   * comercio de uno PROCESSED. 404 si no es del usuario; {@code TransactionNotEditableException}
+   * (409) si sigue PENDING, es un ingreso o es una transferencia propia.
+   */
+  void handle(CorrectTransactionDetailsCommand command);
 }
