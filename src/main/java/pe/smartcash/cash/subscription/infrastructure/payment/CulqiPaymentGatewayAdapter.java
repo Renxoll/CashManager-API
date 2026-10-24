@@ -7,6 +7,7 @@ import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -34,6 +35,7 @@ import pe.smartcash.cash.subscription.domain.services.VerifiedPaymentEvent;
  */
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "app.payments.provider", havingValue = "culqi", matchIfMissing = true)
 class CulqiPaymentGatewayAdapter implements SubscriptionPaymentGateway {
 
   private static final String ACTION_CODE_REVIEW = "REVIEW";
