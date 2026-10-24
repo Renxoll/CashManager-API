@@ -72,6 +72,22 @@ services:
       - key: CULQI_WEBHOOK_TOKEN
         sync: false
 
+      # --- Mercado Pago: respaldo de Culqi. PAYMENTS_PROVIDER elige cuál se usa (culqi por
+      # defecto; "mercadopago" activa su adaptador y su webhook). Access Token de producción
+      # (APP_USR-...) de la aplicación; el plan es opcional; MERCADOPAGO_WEBHOOK_SECRET es la clave
+      # secreta de Webhooks del panel, con la URL
+      # https://api.tuluki.com/api/v1/subscriptions/mercadopago-webhook
+      - key: PAYMENTS_PROVIDER
+        value: culqi
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_PREMIUM_PLAN_ID
+        sync: false
+      - key: MERCADOPAGO_PREMIUM_AMOUNT
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
+        sync: false
+
       # --- Envío de correo (SendGrid Web API v3): hoy solo el correo de "restablecer
       # contraseña" de IAM. Con SENDGRID_ENABLED=false el backend levanta igual pero no
       # manda nada (loguea el enlace) -- en prod tiene que ser "true" + una API key con

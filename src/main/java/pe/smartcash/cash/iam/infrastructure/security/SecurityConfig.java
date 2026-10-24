@@ -50,6 +50,9 @@ class SecurityConfig {
                         // del evento en la API de Culqi son la autenticación real (ver
                         // CulqiWebhookController).
                         "/api/v1/subscriptions/culqi-webhook",
+                        // Mercado Pago tampoco manda Bearer: la firma x-signature y la relectura
+                        // del recurso en su API son la autenticación (MercadoPagoWebhookController).
+                        "/api/v1/subscriptions/mercadopago-webhook",
                         // SendGrid Inbound Parse no manda Bearer (ni puede: no es un cliente
                         // de nuestra API); el token de query (?token=) en
                         // SendGridInboundWebhookController es la autenticación real acá,
