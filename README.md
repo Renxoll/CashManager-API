@@ -203,6 +203,18 @@ autonomía de contexto que el resto del repo); la integridad la garantiza el ACL
 | `POST /api/v1/transactions/expense` | **Nuevo.** Gasto cargado a mano (para lo que no llega por correo — ej. transferencias Yape por debajo del monto que dispara la constancia). Body: `{ "amount", "currency", "merchant", "categoryCode", "workspaceId"? }`. Nace `PROCESSED` con `extractionSource=MANUAL`, sin pasar por el LLM. `categoryCode` se valida contra el catálogo cerrado (módulo General) o contra las categorías del módulo custom; inválido → `400`. → `201` con la transacción. |
 | `GET /api/v1/analytics/monthly-summary` | Nuevo query param opcional `?workspaceId=<uuid>` — el resumen es siempre de **un** módulo (el indicado, o el "General" si se omite). El desglose por categoría se une a `categories` para el General y a `workspace_categories` para un módulo custom. `breakdown[].categoryId` es ahora un string (id bigint del catálogo o UUID de categoría de módulo). |
 
+## Pagos (Mercado Pago, respaldo de Culqi)
+
+`PAYMENTS_PROVIDER` elige la pasarela del plan PREMIUM: `culqi` (por defecto) o `mercadopago`.
+Solo se crea el adaptador, el cliente HTTP y el webhook de la elegida; el contrato de
+`POST /api/v1/subscriptions/premium` y de `DELETE /active` no cambia (`cardToken` es el token de
+tarjeta de MercadoPago.js). Mercado Pago resuelve el 3DS en el navegador, así que nunca responde `202`.
+
+- Alta: `POST /preapproval` con `card_token_id`, `status=authorized` y `external_reference` = id de usuario. Baja: `PUT /preapproval/{id}` con `status=cancelled`.
+- Webhook: `POST /api/v1/subscriptions/mercadopago-webhook` (público). Se valida la firma `x-signature` (HMAC-SHA256 con `MERCADOPAGO_WEBHOOK_SECRET`; sin secreto se rechaza todo) y el estado real se vuelve a leer del API: `subscription_authorized_payment` (cobro aprobado renueva, `recycling`/rechazado alerta) y `subscription_preapproval` (`cancelled` expira).
+- Variables: `MERCADOPAGO_ACCESS_TOKEN`, `MERCADOPAGO_WEBHOOK_SECRET`, `MERCADOPAGO_PREMIUM_AMOUNT` (monto mensual; 0 = no enviarlo), opcionales `MERCADOPAGO_PREMIUM_PLAN_ID`, `MERCADOPAGO_CURRENCY` (PEN), `MERCADOPAGO_BACK_URL`, `MERCADOPAGO_API_BASE_URL`, `MERCADOPAGO_TIMEOUT`.
+- Los tests simulan la API de Mercado Pago a nivel HTTP; el contrato real aún no se probó con una cuenta de sandbox.
+
 ## Pagos (Culqi)
 
 Culqi es la única pasarela (Stripe no soporta Perú). El checkout de Culqi corre en el
